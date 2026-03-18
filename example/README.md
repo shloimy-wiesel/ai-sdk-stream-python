@@ -2,11 +2,17 @@
 
 Full-stack example demonstrating **[ai-sdk-stream-python](../)** — a Python library for streaming [Vercel AI SDK v6](https://sdk.vercel.ai) UIMessageStream SSE events from a FastAPI backend.
 
+The Python backend lives **inside the Next.js project** (`frontend/api/`) so the whole example deploys as a single Vercel project.
+
 ```
-frontend (Next.js + AI SDK v6)
-      │  POST /api/chat  { messages: [{role, content}] }
+useChat (Next.js)
+      │  POST /api/chat
+      │  ┌─────────────────────────────────────────────────────────┐
+      │  │  dev: Next.js rewrite → uvicorn :8000                   │
+      │  │  prod: Vercel routes → api/index.py (Python function)   │
+      │  └─────────────────────────────────────────────────────────┘
       ▼
-backend (FastAPI + ai-sdk-stream-python)
+FastAPI + ai-sdk-stream-python (frontend/api/)
       │  OpenAI-compatible API (any model)
       ▼
 LLM (Mistral / OpenAI / etc.)
@@ -18,7 +24,7 @@ LLM (Mistral / OpenAI / etc.)
 - **Tool calling** — the LLM can call `search_documents` and the result streams back to the UI
 - **Stateless backend** — the full conversation history is sent on every request
 - **Streaming UI** — text streams token-by-token using AI SDK v6 `useChat`
-- **Dark mode** by default
+- **Single Vercel project** — Python function + Next.js frontend in one repo
 
 ---
 
@@ -29,21 +35,21 @@ LLM (Mistral / OpenAI / etc.)
 | Python | ≥ 3.9 |
 | [uv](https://docs.astral.sh/uv/) | latest |
 | Node.js | ≥ 18 |
-| pnpm / npm / yarn | any |
+| npm / pnpm / yarn | any |
 
 ---
 
-## Backend
+## Local development
 
 ### 1 — Configure environment
 
 ```bash
-cd example/backend
-cp .env.example .env
-# Edit .env with your LLM endpoint, API key, and model ID
+cd example/frontend
+cp .env.local.example .env.local
+# Edit .env.local with your LLM endpoint, API key, and model ID
 ```
 
-`.env` variables:
+`.env.local` variables:
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -51,63 +57,48 @@ cp .env.example .env
 | `LLM_API_KEY` | API key (`-` for unauthenticated) | `-` |
 | `LLM_MODEL` | Model ID | `mistralai/Mistral-Small-4-119B-2603-NVFP4` |
 
-### 2 — Install dependencies & run
-
-```bash
-# From the example/ directory
-uv sync
-uv run uvicorn backend.main:app --reload --port 8000
-```
-
-The API is now available at `http://localhost:8000`.
-Swagger docs: `http://localhost:8000/docs`
-
----
-
-## Frontend
-
-### 1 — Install dependencies
+### 2 — Install Python dependencies
 
 ```bash
 cd example/frontend
-npm install        # or pnpm install / yarn
+uv sync   # installs from pyproject.toml, uses local ai-sdk-stream-python source
 ```
 
-### 2 — Run the dev server
+### 3 — Run both servers
+
+Open two terminals:
 
 ```bash
+# Terminal 1 — Python FastAPI (port 8000)
+cd example/frontend
+uv run uvicorn api.index:app --reload --port 8000
+
+# Terminal 2 — Next.js dev server (port 3000)
+cd example/frontend
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-> The frontend proxies `/api/chat` → `http://localhost:8000/chat`.
-> Override the backend URL via the `BACKEND_URL` environment variable:
-> ```bash
-> BACKEND_URL=http://my-backend:8000 npm run dev
-> ```
+Next.js automatically rewrites `/api/*` → `http://127.0.0.1:8000/api/*` in development, so `useChat` hits the Python server transparently.
 
 ---
 
-## Running both together
+## Vercel deployment
 
-Open two terminals:
+The project is structured for a single Vercel deployment:
 
-```bash
-# Terminal 1 — backend
-cd example
-uv run uvicorn backend.main:app --reload --port 8000
+1. Set the **Root Directory** to `example/frontend` in your Vercel project settings.
+2. Add the environment variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`) in the Vercel dashboard.
+3. Deploy — Vercel auto-detects:
+   - `package.json` → Next.js frontend
+   - `requirements.txt` + `api/index.py` → Python serverless function at `/api/`
 
-# Terminal 2 — frontend
-cd example/frontend
-npm run dev
-```
+In production, Next.js rewrites `/api/*` → `/api/` which Vercel routes to the Python function.
 
 ---
 
 ## E2E Tests (Playwright)
-
-The frontend has a Playwright test suite that mocks the SSE stream and verifies the UI without a real backend.
 
 ```bash
 cd example/frontend
@@ -121,22 +112,22 @@ npm run test:e2e -- --ui  # interactive UI mode
 
 ```
 example/
-├── backend/
-│   ├── main.py                  # FastAPI app + CORS
-│   ├── routes/
-│   │   └── chat.py              # POST /chat — streaming endpoint
-│   ├── services/
-│   │   ├── llm_service.py       # Real LLM via OpenAI SDK + tool calling
-│   │   └── db_service.py        # Document search tool (simulated DB)
-│   ├── .env.example             # Environment variable template
-│   └── pyproject.toml
-└── frontend/
+└── frontend/                        # Single Vercel project root
+    ├── api/                         # Python serverless function (Vercel) / uvicorn app (dev)
+    │   ├── index.py                 # FastAPI app entry point
+    │   ├── routes/
+    │   │   └── chat.py              # POST /api/chat — streaming endpoint
+    │   └── services/
+    │       ├── llm_service.py       # Real LLM via OpenAI SDK + tool calling
+    │       └── db_service.py        # Document search tool (simulated DB)
     ├── app/
-    │   ├── page.tsx             # Chat UI (useChat + ai-elements)
-    │   ├── layout.tsx           # Root layout
-    │   └── api/chat/route.ts    # Proxy → backend
+    │   ├── page.tsx                 # Chat UI (useChat + ai-elements)
+    │   └── layout.tsx               # Root layout
     ├── tests/
-    │   ├── chat.spec.ts         # Playwright E2E tests
+    │   ├── chat.spec.ts             # Playwright E2E tests
     │   └── helpers/sse-stream.ts
-    └── package.json
+    ├── next.config.ts               # Rewrites /api/* → Python server
+    ├── pyproject.toml               # Python deps for local dev (uv, editable source)
+    ├── requirements.txt             # Python deps for Vercel deployment (PyPI)
+    └── .env.local.example           # Environment variable template
 ```

@@ -1,0 +1,21 @@
+[project]
+name = "ai-sdk-stream-python-example-frontend"
+version = "0.1.0"
+description = "Python API for the ai-sdk-stream-python example frontend"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.0.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "ai-sdk-stream-python",
+]
+
+[tool.uv.sources]
+# Install ai-sdk-stream-python from source during local development.
+# On Vercel, requirements.txt is used instead and pulls from PyPI.
+ai-sdk-stream-python = { path = "../..", editable = true }
+
+[tool.uv]
+package = false
