@@ -118,7 +118,23 @@
 
 @layer base {
   * {
+    scrollbar-color: oklch(1 0 0 / 12%) transparent;
+    scrollbar-width: thin;
     @apply border-border outline-ring/50;
+  }
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: oklch(1 0 0 / 12%);
+    border-radius: 99px;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: oklch(1 0 0 / 22%);
   }
   body {
     @apply bg-background text-foreground;
