@@ -40,5 +40,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Override root .gitignore which excludes lib/ (Python convention)
+!lib/
+
 # playwright
 /test-results
