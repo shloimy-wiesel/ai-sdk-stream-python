@@ -27,9 +27,23 @@ from ..services import llm_service
 router = APIRouter()
 
 
+class ContentPart(BaseModel):
+    type: str
+    text: str | None = None
+
+
 class ChatMessage(BaseModel):
     role: str
-    content: str
+    content: str | None = None
+    parts: list[ContentPart] | None = None
+
+    def to_llm_message(self) -> dict:
+        if self.content is not None:
+            return {"role": self.role, "content": self.content}
+        text = " ".join(
+            p.text for p in (self.parts or []) if p.type == "text" and p.text
+        )
+        return {"role": self.role, "content": text}
 
 
 class ChatRequest(BaseModel):
@@ -48,7 +62,7 @@ async def chat(request: ChatRequest) -> StreamingResponse:
 
     async def _work() -> None:
         try:
-            messages = [m.model_dump() for m in request.messages]
+            messages = [m.to_llm_message() for m in request.messages]
             await llm_service.chat(messages, ctx=ctx)
         except Exception as exc:  # noqa: BLE001
             await ctx.write_text(f"\n\n_(Error: {exc})_")
