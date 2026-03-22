@@ -56,7 +56,7 @@ import asyncio
 import inspect
 import logging
 import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, TypeVar
 
@@ -563,6 +563,38 @@ class StreamContext(Generic[_InfoT]):
         self._finished = True
         self._queue.put_nowait(ErrorEvent(errorText=error_text))
         self._queue.put_nowait(None)
+
+    async def run(
+        self, coro: Callable[[StreamContext[_InfoT]], Awaitable[None]]
+    ) -> asyncio.Task[None]:
+        """
+        Run *coro* as a background task with automatic error/finish handling.
+
+        If *coro* raises an unhandled exception the stream is terminated with
+        an ``error`` event so the client receives a proper error response
+        instead of hanging indefinitely.  If *coro* returns without calling
+        ``finish()`` or ``abort()``, ``finish()`` is called automatically.
+
+        Example::
+
+            ctx = StreamContext()
+            await ctx.run(lambda ctx: my_service.chat(request, ctx=ctx))
+            return StreamingResponse(ctx.stream(), ...)
+        """
+
+        async def _safe() -> None:
+            try:
+                await coro(self)
+            except Exception as exc:
+                if not self.is_finished:
+                    await self.error(str(exc))
+            finally:
+                if not self.is_finished:
+                    await self.finish()
+
+        task: asyncio.Task[None] = asyncio.create_task(_safe())
+        self._task = task  # prevent GC
+        return task
 
     # ── SSE async generator ───────────────────────────────────────────────────
 

@@ -880,6 +880,124 @@ class TestStartMetadata:
 
 
 # ---------------------------------------------------------------------------
+# ctx.run() — safe task runner
+# ---------------------------------------------------------------------------
+
+
+class TestRun:
+    async def test_normal_completion(self):
+        """run() works like create_task — stream finishes normally."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.write_text("hello")
+            await c.finish()
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        types = [e["type"] for e in events]
+        assert "text-delta" in types
+        assert "finish" in types
+
+    async def test_auto_finish_when_not_called(self):
+        """If the work coroutine returns without finish(), run() calls it."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.write_text("hi")
+            # no finish()
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        types = [e["type"] for e in events]
+        assert "finish" in types
+
+    async def test_exception_emits_error_event(self):
+        """If work raises, an error event is emitted instead of hanging."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.write_text("partial")
+            raise RuntimeError("oops")
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        types = [e["type"] for e in events]
+        assert "error" in types
+        assert "finish" not in types
+
+    async def test_exception_error_message(self):
+        """The error event carries the exception message."""
+        ctx = StreamContext()
+
+        async def work(c):
+            raise ValueError("something went wrong")
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        error_events = [e for e in events if e["type"] == "error"]
+        assert len(error_events) == 1
+        assert error_events[0]["errorText"] == "something went wrong"
+
+    async def test_exception_preserves_written_text(self):
+        """Text written before the crash is still in the stream."""
+        ctx = StreamContext(collect=True)
+
+        async def work(c):
+            await c.write_text("partial output")
+            raise RuntimeError("boom")
+
+        await ctx.run(work)
+        await collect_stream(ctx)
+        assert ctx.record is not None
+        assert ctx.record.text == "partial output"
+
+    async def test_stream_does_not_hang_on_exception(self):
+        """ctx.stream() must not block forever when work raises."""
+        ctx = StreamContext()
+
+        async def work(c):
+            raise RuntimeError("crash")
+
+        await ctx.run(work)
+        # If this doesn't hang, the test passes
+        events = await asyncio.wait_for(collect_stream(ctx), timeout=2.0)
+        assert any(e["type"] == "error" for e in events)
+
+    async def test_returns_task(self):
+        """run() returns an asyncio.Task."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.finish()
+
+        task = await ctx.run(work)
+        assert isinstance(task, asyncio.Task)
+        await collect_stream(ctx)
+
+    async def test_already_finished_ctx_no_extra_finish(self):
+        """If work calls finish() itself, run() does not double-finish."""
+        ctx = StreamContext()
+        finish_count = 0
+        original_finish = ctx.finish
+
+        async def counting_finish(**kwargs):
+            nonlocal finish_count
+            finish_count += 1
+            await original_finish(**kwargs)
+
+        ctx.finish = counting_finish  # type: ignore[method-assign]
+
+        async def work(c):
+            await c.write_text("done")
+            await c.finish()
+
+        await ctx.run(work)
+        await collect_stream(ctx)
+        assert finish_count == 1
+
+
+# ---------------------------------------------------------------------------
 # pytest-asyncio config
 # ---------------------------------------------------------------------------
 
