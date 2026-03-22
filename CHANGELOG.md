@@ -1,6 +1,17 @@
 # CHANGELOG
 
 
+## v0.1.1 (2026-03-22)
+
+### Bug Fixes
+
+- Use correct Python version specifier >=3.10,<3.13 for 3.10–3.12 support
+  ([`ad4c603`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/ad4c603e4f4221f9556ef84517e74f5adb322e4c))
+
+- Use correct Python version specifier >=3.10,<3.13 for 3.10–3.12 support
+  ([`0ba2e9c`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/0ba2e9c26fa20311fd4ac1e2056de65adddfbfcd))
+
+
 ## v0.1.0 (2026-03-22)
 
 ### Bug Fixes
