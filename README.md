@@ -1,6 +1,16 @@
 # ai-sdk-stream-python
 
+[![PyPI version](https://img.shields.io/pypi/v/ai-sdk-stream-python)](https://pypi.org/project/ai-sdk-stream-python/)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://pypi.org/project/ai-sdk-stream-python/)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+
 A Python library for building [Vercel AI SDK v6](https://sdk.vercel.ai/) **UIMessageStream**-compatible streaming backends.
+
+## Installation
+
+```bash
+pip install ai-sdk-stream-python
+```
 
 **Inspired by [llama-index-workflows](https://docs.llamaindex.ai/en/stable/module_guides/workflow/)** — the same idea of a `Context` object that holds shared state and can write events to a stream, applied to the Vercel AI SDK wire protocol.
 
