@@ -137,6 +137,14 @@ class ErrorEvent(BaseEvent):
     errorText: str
 
 
+# ── Abort ──────────────────────────────────────────────────────────────────────
+
+
+class AbortEvent(BaseEvent):
+    type: Literal["abort"] = "abort"
+    reason: str | None = None
+
+
 # ── Discriminated union ────────────────────────────────────────────────────────
 
 UIMessageStreamEvent = Annotated[
@@ -155,6 +163,7 @@ UIMessageStreamEvent = Annotated[
     | ToolOutputErrorEvent
     | SourceUrlEvent
     | ErrorEvent
+    | AbortEvent
     | FinishStepEvent
     | FinishEvent,
     Field(discriminator="type"),
@@ -180,4 +189,5 @@ __all__ = [
     "ToolOutputErrorEvent",
     "SourceUrlEvent",
     "ErrorEvent",
+    "AbortEvent",
 ]

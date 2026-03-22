@@ -307,6 +307,41 @@ class TestEdgeCases:
         events = await collect_stream(ctx)
         assert not any(e["type"] == "finish" for e in events)
 
+    async def test_abort_emits_abort_event(self):
+        """abort() must emit an abort event per the v6 spec."""
+
+        async def work(ctx):
+            await ctx.write_text("partial")
+            await ctx.abort()
+
+        events = await run_and_collect(work)
+        assert any(e["type"] == "abort" for e in events)
+        assert not any(e["type"] == "finish" for e in events)
+
+    async def test_abort_with_reason(self):
+        async def work(ctx):
+            await ctx.abort(reason="user cancelled")
+
+        events = await run_and_collect(work)
+        abort_ev = next(e for e in events if e["type"] == "abort")
+        assert abort_ev["reason"] == "user cancelled"
+
+    async def test_abort_without_reason_omits_field(self):
+        async def work(ctx):
+            await ctx.abort()
+
+        events = await run_and_collect(work)
+        abort_ev = next(e for e in events if e["type"] == "abort")
+        assert "reason" not in abort_ev
+
+    async def test_abort_is_idempotent(self):
+        async def work(ctx):
+            await ctx.abort("first")
+            await ctx.abort("second")  # no-op
+
+        events = await run_and_collect(work)
+        assert sum(1 for e in events if e["type"] == "abort") == 1
+
     async def test_error_emits_error_event_and_terminates(self):
         """ctx.error() emits an error event then [DONE] — no finish event."""
 

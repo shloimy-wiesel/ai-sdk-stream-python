@@ -47,6 +47,7 @@ from .collect import StreamRecord as StreamRecord
 from .collect import ToolCallRecord as ToolCallRecord
 from .context import StreamContext, ToolCallHandle
 from .events import (
+    AbortEvent,
     BaseEvent,
     ErrorEvent,
     FinishEvent,
@@ -102,6 +103,7 @@ __all__ = [
     "ToolOutputErrorEvent",
     # Sources
     "SourceUrlEvent",
-    # Error
+    # Error / Abort
     "ErrorEvent",
+    "AbortEvent",
 ]

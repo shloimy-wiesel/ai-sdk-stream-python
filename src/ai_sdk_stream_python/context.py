@@ -62,6 +62,7 @@ from pydantic import BaseModel
 
 from .collect import SourceRecord, StreamRecord, ToolCallRecord
 from .events import (
+    AbortEvent,
     BaseEvent,
     ErrorEvent,
     FinishEvent,
@@ -378,16 +379,19 @@ class StreamContext(Generic[_InfoT]):
         )
         self._queue.put_nowait(None)  # sentinel → stream() yields [DONE]
 
-    async def abort(self) -> None:
+    async def abort(self, reason: str | None = None) -> None:
         """
-        Terminate the stream immediately without a proper finish event.
+        Emit an ``abort`` event and terminate the stream.
 
         Use in error-handling paths where the normal ``finish()`` flow
-        cannot be reached.
+        cannot be reached.  The optional *reason* string is forwarded to
+        the frontend so ``useChat`` can surface why the stream stopped.
+        Safe to call multiple times; subsequent calls are no-ops.
         """
         if self._finished:
             return
         self._finished = True
+        self._queue.put_nowait(AbortEvent(reason=reason))
         self._queue.put_nowait(None)
 
     async def error(self, error_text: str) -> None:
