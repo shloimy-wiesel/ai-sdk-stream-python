@@ -54,6 +54,7 @@ async def my_work(ctx):
 | **Lifecycle auto-management** | `start`, `start-step`, `text-start` etc. are emitted automatically |
 | **Shared state** | `ctx.store.get/set()` — dot-path key-value store shared across modules |
 | **Pass as parameter** | `ctx` flows through your services like a logger or DB session |
+| **Stream collection** | `collect=True` records all emitted content into `ctx.record` for DB persistence |
 | **Low-level escape hatch** | `ctx.write(event)` / `ctx.write_event_to_stream(ev)` for raw control |
 | **Abort support** | `ctx.abort()` terminates the stream safely on errors |
 
@@ -166,6 +167,41 @@ ctx.write_event_to_stream(TextDeltaEvent(id=ctx.current_text_id, delta="!"))
 # Async push (auto-ensures 'start' was emitted first)
 await ctx.write(TextDeltaEvent(id="my-id", delta="raw"))
 ```
+
+### Stream collection
+
+Pass `collect=True` to record all emitted content into a `StreamRecord` for database persistence or audit logging:
+
+```python
+ctx = StreamContext(collect=True)
+
+async def _work():
+    try:
+        await ctx.write_reasoning("Let me think…")
+        handle = await ctx.begin_tool_call("search", {"q": "hello"})
+        await ctx.complete_tool_call(handle.toolCallId, {"results": [...]})
+        await ctx.write_text("Here is the answer.")
+        await ctx.write_source("s1", "https://example.com", "My Doc")
+    finally:
+        await ctx.finish()
+
+asyncio.create_task(_work())
+response = StreamingResponse(ctx.stream(), headers=ctx.response_headers)
+
+# After finish(), ctx.record is fully populated:
+record = ctx.record
+# record.text        → "Here is the answer."
+# record.reasoning   → "Let me think…"
+# record.tool_calls  → [ToolCallRecord(tool_name="search", input={...}, output={...})]
+# record.sources     → [SourceRecord(source_id="s1", url="https://example.com", title="My Doc")]
+# record.finish_reason → "stop"
+# record.step_count  → 1
+
+# Serialize to a plain dict for DB storage:
+await db.insert(record.to_dict())
+```
+
+`ctx.record` is `None` when `collect=False` (the default). The record is built incrementally as events are emitted, and is fully available after `finish()` completes.
 
 ### Abort
 
@@ -321,9 +357,9 @@ npm run dev
 uv run pytest tests/ -v
 ```
 
-25 tests covering: basic lifecycle, reasoning ↔ text transitions, tool calls,
+51 tests covering: basic lifecycle, reasoning ↔ text transitions, tool calls,
 multi-step flows, source events, edge cases (double finish, abort, write after finish),
-and StateStore integration.
+StateStore integration, and stream collection (`collect=True`).
 
 ---
 
