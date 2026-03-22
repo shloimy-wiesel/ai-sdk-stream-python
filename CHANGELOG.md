@@ -1,6 +1,29 @@
 # CHANGELOG
 
 
+## v0.2.0-a.2 (2026-03-22)
+
+### Features
+
+- Add typed custom_information support to StreamContext
+  ([#7](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/7),
+  [`f6e8da9`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/f6e8da9a5ba6226e1f1e5255db9b017ecdf9683e))
+
+* feat: add typed custom_information support to StreamContext
+
+Closes #6
+
+- StreamContext is now Generic[_InfoT] (bound to pydantic.BaseModel) - New `custom_information`
+  constructor parameter stores a read-only Pydantic model accessible via ctx.info throughout the
+  stream lifecycle - Useful for carrying request-scoped metadata (user_id, rate_limit, etc.) through
+  service layers without extra function arguments - 5 new tests; pyright passes with 0 errors
+
+* fix: correct docstring type and test organization for custom_information
+
+- Fix `info : _InfoT` → `info : _InfoT | None` in class Attributes docstring - Group
+  custom_information tests into TestCustomInformation class
+
+
 ## v0.2.0-a.1 (2026-03-22)
 
 ### Features
