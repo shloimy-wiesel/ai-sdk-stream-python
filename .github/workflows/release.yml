@@ -1,5 +1,6 @@
 name: Release
 
+
 # Triggered on every push to the versioned branches.
 # main  → stable releases  (1.2.0)
 # beta  → beta pre-releases (1.2.0b1)
@@ -16,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       - name: Set up uv + Python
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7.6.0
         with:
           python-version: "3.12"
 
@@ -35,10 +36,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       - name: Set up uv + Python
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7.6.0
         with:
           python-version: "3.12"
 
@@ -72,14 +73,14 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
         with:
           # Full history is required for PSR to compute the next version.
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7.6.0
 
       - name: Run python-semantic-release
         id: release
@@ -96,12 +97,12 @@ jobs:
 
     steps:
       # Checkout the exact commit that was tagged by PSR.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
         with:
           ref: ${{ needs.release.outputs.tag }}
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7.6.0
 
       - name: Build distributions
         run: uv build
