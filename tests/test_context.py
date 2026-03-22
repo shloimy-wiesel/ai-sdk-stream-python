@@ -6,32 +6,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-import pytest
-
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from ai_sdk_stream_python import StreamContext
 from ai_sdk_stream_python.events import (
-    FinishEvent,
-    FinishStepEvent,
-    ReasoningDeltaEvent,
-    ReasoningEndEvent,
-    ReasoningStartEvent,
-    SourceUrlEvent,
     StartEvent,
-    StartStepEvent,
     TextDeltaEvent,
-    TextEndEvent,
-    TextStartEvent,
-    ToolInputAvailableEvent,
-    ToolInputStartEvent,
-    ToolOutputAvailableEvent,
-    ToolOutputErrorEvent,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -70,7 +56,15 @@ class TestBasicLifecycle:
 
         events = await run_and_collect(work)
         types = [e["type"] for e in events]
-        assert types == ["start", "start-step", "text-start", "text-delta", "text-end", "finish-step", "finish"]
+        assert types == [
+            "start",
+            "start-step",
+            "text-start",
+            "text-delta",
+            "text-end",
+            "finish-step",
+            "finish",
+        ]
         assert events[3]["delta"] == "hello world"
 
     async def test_multiple_text_deltas_share_id(self):
@@ -104,6 +98,7 @@ class TestBasicLifecycle:
 
     async def test_empty_stream_finish(self):
         """finish() without any writes still produces a valid stream."""
+
         async def work(ctx):
             await ctx.finish()
 
@@ -143,6 +138,7 @@ class TestReasoning:
 
     async def test_text_auto_closes_when_reasoning_starts(self):
         """Switching from text → reasoning should close text first."""
+
         async def work(ctx):
             await ctx.write_text("partial")
             await ctx.write_reasoning("second thought")
@@ -150,7 +146,9 @@ class TestReasoning:
 
         events = await run_and_collect(work)
         text_end_idx = next(i for i, e in enumerate(events) if e["type"] == "text-end")
-        reasoning_start_idx = next(i for i, e in enumerate(events) if e["type"] == "reasoning-start")
+        reasoning_start_idx = next(
+            i for i, e in enumerate(events) if e["type"] == "reasoning-start"
+        )
         assert text_end_idx < reasoning_start_idx
 
 
@@ -216,6 +214,7 @@ class TestSteps:
 
     async def test_full_flow_ordering(self):
         """reasoning → tool → text ordering matches the UIMessageStream spec."""
+
         async def work(ctx):
             await ctx.write_reasoning("thinking")
             await ctx.new_step()
@@ -238,7 +237,17 @@ class TestSteps:
         txt_end = types.index("text-end")
         finish = types.index("finish")
 
-        assert r_start < r_end < fs1 < ti_start < to_avail < fs2 < txt_start < txt_end < finish
+        assert (
+            r_start
+            < r_end
+            < fs1
+            < ti_start
+            < to_avail
+            < fs2
+            < txt_start
+            < txt_end
+            < finish
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -321,7 +330,6 @@ class TestEdgeCases:
 
     async def test_low_level_write_requires_started(self):
         """ctx.write(ev) auto-emits start before the raw event."""
-        from ai_sdk_stream_python.events import TextDeltaEvent
 
         async def work(ctx):
             await ctx.write(TextDeltaEvent(id="x", delta="raw"))

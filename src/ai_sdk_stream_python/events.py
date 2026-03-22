@@ -11,7 +11,7 @@ Response header: ``x-vercel-ai-ui-message-stream: v1``.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -132,22 +132,24 @@ class SourceUrlEvent(BaseEvent):
 # ── Discriminated union ────────────────────────────────────────────────────────
 
 UIMessageStreamEvent = Annotated[
-    StartEvent
-    | StartStepEvent
-    | ReasoningStartEvent
-    | ReasoningDeltaEvent
-    | ReasoningEndEvent
-    | TextStartEvent
-    | TextDeltaEvent
-    | TextEndEvent
-    | ToolInputStartEvent
-    | ToolInputDeltaEvent
-    | ToolInputAvailableEvent
-    | ToolOutputAvailableEvent
-    | ToolOutputErrorEvent
-    | SourceUrlEvent
-    | FinishStepEvent
-    | FinishEvent,
+    Union[
+        StartEvent,
+        StartStepEvent,
+        ReasoningStartEvent,
+        ReasoningDeltaEvent,
+        ReasoningEndEvent,
+        TextStartEvent,
+        TextDeltaEvent,
+        TextEndEvent,
+        ToolInputStartEvent,
+        ToolInputDeltaEvent,
+        ToolInputAvailableEvent,
+        ToolOutputAvailableEvent,
+        ToolOutputErrorEvent,
+        SourceUrlEvent,
+        FinishStepEvent,
+        FinishEvent,
+    ],
     Field(discriminator="type"),
 ]
 

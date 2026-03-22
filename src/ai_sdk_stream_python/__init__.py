@@ -22,6 +22,7 @@ Quickstart::
 
     app = FastAPI()
 
+
     @app.post("/chat")
     async def chat():
         ctx = StreamContext()

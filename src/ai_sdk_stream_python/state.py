@@ -9,14 +9,15 @@ Example::
 
     store = StateStore()
     await store.set("user.name", "Alice")
-    name = await store.get("user.name")           # "Alice"
-    await store.set("scores.0", 99)               # list index
+    name = await store.get("user.name")  # "Alice"
+    await store.set("scores.0", 99)  # list index
     await store.get("missing.key", default=None)  # None
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Any, ClassVar
 
 _SENTINEL = object()
@@ -81,7 +82,7 @@ class StateStore:
             except (KeyError, IndexError, AttributeError, TypeError):
                 if default is not _SENTINEL:
                     return default
-                raise KeyError(f"Path '{path}' not found in state")
+                raise KeyError(f"Path '{path}' not found in state") from None
 
     async def set(self, path: str, value: Any) -> None:
         """
@@ -119,10 +120,8 @@ class StateStore:
             if isinstance(current, dict):
                 current.pop(last, None)
             else:
-                try:
+                with contextlib.suppress(AttributeError):
                     delattr(current, last)
-                except AttributeError:
-                    pass
 
     async def clear(self) -> None:
         """Remove all stored state."""

@@ -29,6 +29,7 @@ Usage example (FastAPI)::
     from fastapi.responses import StreamingResponse
     from ai_sdk_stream_python import StreamContext
 
+
     @app.post("/chat")
     async def chat(request: ChatRequest):
         ctx = StreamContext()
@@ -53,8 +54,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, ClassVar
+from typing import Any, ClassVar
 
 from .events import (
     BaseEvent,
@@ -245,7 +247,9 @@ class StreamContext:
         tcid = tool_call_id or str(uuid.uuid4())
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
         self._queue.put_nowait(
-            ToolInputAvailableEvent(toolCallId=tcid, toolName=tool_name, input=tool_input)
+            ToolInputAvailableEvent(
+                toolCallId=tcid, toolName=tool_name, input=tool_input
+            )
         )
         return ToolCallHandle(toolCallId=tcid, toolName=tool_name)
 

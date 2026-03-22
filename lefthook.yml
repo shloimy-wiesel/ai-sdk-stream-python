@@ -1,42 +1,66 @@
-# EXAMPLE USAGE:
+# Lefthook — git hooks for local development
 #
-#   Refer for explanation to following link:
-#   https://lefthook.dev/configuration/
+# Install lefthook (once, globally):
+#   macOS / Linux:  brew install lefthook
+#   Go toolchain:   go install github.com/evilmartians/lefthook@latest
+#   npm (any OS):   npm install -g @evilmartians/lefthook
 #
-# pre-push:
-#   jobs:
-#     - name: packages audit
-#       tags:
-#         - frontend
-#         - security
-#       run: yarn audit
+# Activate hooks in this repo (once, after cloning):
+#   lefthook install
 #
-#     - name: gems audit
-#       tags:
-#         - backend
-#         - security
-#       run: bundle audit
-#
-# pre-commit:
-#   parallel: true
-#   jobs:
-#     - run: yarn eslint {staged_files}
-#       glob: "*.{js,ts,jsx,tsx}"
-#
-#     - name: rubocop
-#       glob: "*.rb"
-#       exclude:
-#         - config/application.rb
-#         - config/routes.rb
-#       run: bundle exec rubocop --force-exclusion -- {all_files}
-#
-#     - name: govet
-#       files: git ls-files -m
-#       glob: "*.go"
-#       run: go vet -- {files}
-#
-#     - script: "hello.js"
-#       runner: node
-#
-#     - script: "hello.go"
-#       runner: go run
+# Run a hook group manually to test it:
+#   lefthook run pre-commit
+#   lefthook run pre-push
+
+# ── pre-commit: format → lint → type-check (all in parallel) ─────────────────
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      name: ruff format
+      glob: "*.py"
+      run: uv run ruff format {staged_files}
+      stage_fixed: true   # auto-stage any files ruff reformatted
+
+    lint:
+      name: ruff check
+      glob: "*.py"
+      run: uv run ruff check --fix {staged_files}
+      stage_fixed: true   # auto-stage any files ruff auto-fixed
+
+    type-check:
+      name: pyright
+      glob: "*.py"
+      # pyright needs the full project context, not just staged files
+      run: uv run pyright src
+
+# ── commit-msg: enforce Conventional Commits ──────────────────────────────────
+commit-msg:
+  commands:
+    conventional:
+      name: conventional commits
+      run: |
+        msg=$(cat {1})
+        pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?!?: .+'
+        if ! echo "$msg" | grep -qE "$pattern"; then
+          echo ""
+          echo "  ERROR: commit message does not follow Conventional Commits."
+          echo ""
+          echo "  Format:  <type>(<scope>): <description>"
+          echo "  Types:   feat | fix | docs | style | refactor | perf"
+          echo "           test | build | ci | chore | revert"
+          echo ""
+          echo "  Examples:"
+          echo "    feat: add streaming support"
+          echo "    fix(context): handle double finish() call"
+          echo "    feat!: drop Python 3.8 support  (breaking change)"
+          echo ""
+          exit 1
+        fi
+
+# ── pre-push: run full test suite before pushing ──────────────────────────────
+pre-push:
+  commands:
+    tests:
+      name: pytest
+      run: uv run pytest --tb=short -q

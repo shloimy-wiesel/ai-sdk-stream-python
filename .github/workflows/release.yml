@@ -10,7 +10,7 @@ on:
     branches: [main, beta, alpha]
 
 jobs:
-  # ── 1. Tests ────────────────────────────────────────────────────────────────
+  # ── 1a. Tests ───────────────────────────────────────────────────────────────
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -29,10 +29,35 @@ jobs:
       - name: Run tests
         run: uv run pytest --tb=short -q
 
+  # ── 1b. Lint & type-check (runs in parallel with test) ──────────────────────
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: ruff lint
+        run: uv run ruff check src tests
+
+      - name: pyright type check
+        run: uv run pyright src
+
   # ── 2. Semantic Release ─────────────────────────────────────────────────────
   release:
     name: Semantic Release
-    needs: test
+    needs: [test, lint]
     runs-on: ubuntu-latest
     # Prevent two release jobs from racing each other.
     concurrency: release
