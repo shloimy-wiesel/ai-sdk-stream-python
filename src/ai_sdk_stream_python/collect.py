@@ -41,6 +41,15 @@ class FileRecord:
 
 
 @dataclass
+class DataPartRecord:
+    """A non-transient custom data part emitted via ``write_data``."""
+
+    name: str
+    data: dict[str, Any]
+    id: str | None = None
+
+
+@dataclass
 class StreamRecord:
     """
     Accumulated content from one assistant stream turn.
@@ -75,6 +84,7 @@ class StreamRecord:
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     sources: list[SourceRecord] = field(default_factory=list)
     files: list[FileRecord] = field(default_factory=list)
+    data_parts: list[DataPartRecord] = field(default_factory=list)
     finish_reason: str | None = None
     step_count: int = 0
 
@@ -109,9 +119,23 @@ class StreamRecord:
                 }
                 for f in self.files
             ],
+            "data_parts": [
+                {
+                    "name": dp.name,
+                    "data": dp.data,
+                    "id": dp.id,
+                }
+                for dp in self.data_parts
+            ],
             "finish_reason": self.finish_reason,
             "step_count": self.step_count,
         }
 
 
-__all__ = ["FileRecord", "SourceRecord", "StreamRecord", "ToolCallRecord"]
+__all__ = [
+    "DataPartRecord",
+    "FileRecord",
+    "SourceRecord",
+    "StreamRecord",
+    "ToolCallRecord",
+]

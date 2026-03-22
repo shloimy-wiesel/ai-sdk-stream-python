@@ -60,10 +60,17 @@ from typing import Any, ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel
 
-from .collect import FileRecord, SourceRecord, StreamRecord, ToolCallRecord
+from .collect import (
+    DataPartRecord,
+    FileRecord,
+    SourceRecord,
+    StreamRecord,
+    ToolCallRecord,
+)
 from .events import (
     AbortEvent,
     BaseEvent,
+    DataEvent,
     ErrorEvent,
     FileEvent,
     FinishEvent,
@@ -331,6 +338,39 @@ class StreamContext(Generic[_InfoT]):
         self.write_event_to_stream(
             ToolOutputErrorEvent(toolCallId=tool_call_id, error=error)
         )
+
+    async def write_data(
+        self,
+        name: str,
+        data: dict[str, Any],
+        *,
+        id: str | None = None,
+        transient: bool = False,
+    ) -> None:
+        """
+        Emit a custom data part (``data-{name}`` type).
+
+        *name* is validated: it must be non-empty and contain only
+        alphanumeric characters, hyphens, or underscores.
+        Non-transient parts are collected in ``ctx.record.data_parts``.
+        Transient parts are only available through the ``onData`` callback
+        on the frontend; they are not stored in message history.
+        """
+        if not name or not all(c.isalnum() or c in "-_" for c in name):
+            raise ValueError(
+                f"Invalid data part name {name!r}. "
+                "Use only alphanumeric characters, hyphens, or underscores."
+            )
+        await self._ensure_started()
+        event = DataEvent(
+            type=f"data-{name}",
+            data=data,
+            id=id,
+            transient=transient or None,
+        )
+        if self._record is not None and not transient:
+            self._record.data_parts.append(DataPartRecord(name=name, data=data, id=id))
+        self.write_event_to_stream(event)
 
     async def write_file(self, url: str, media_type: str) -> None:
         """

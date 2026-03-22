@@ -42,6 +42,7 @@ Quickstart::
         )
 """
 
+from .collect import DataPartRecord as DataPartRecord
 from .collect import FileRecord as FileRecord
 from .collect import SourceRecord as SourceRecord
 from .collect import StreamRecord as StreamRecord
@@ -50,6 +51,7 @@ from .context import StreamContext, ToolCallHandle
 from .events import (
     AbortEvent,
     BaseEvent,
+    DataEvent,
     ErrorEvent,
     FileEvent,
     FinishEvent,
@@ -82,6 +84,7 @@ __all__ = [
     "ToolCallRecord",
     "SourceRecord",
     "FileRecord",
+    "DataPartRecord",
     # Base / union
     "BaseEvent",
     "UIMessageStreamEvent",
@@ -108,6 +111,8 @@ __all__ = [
     "SourceUrlEvent",
     # Files
     "FileEvent",
+    # Custom data parts
+    "DataEvent",
     # Error / Abort
     "ErrorEvent",
     "AbortEvent",

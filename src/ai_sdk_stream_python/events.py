@@ -146,6 +146,22 @@ class ErrorEvent(BaseEvent):
     errorText: str
 
 
+# ── Custom data parts ─────────────────────────────────────────────────────────
+
+
+class DataEvent(BaseEvent):
+    """Custom data part with a dynamic ``data-{name}`` type.
+
+    Not included in the ``UIMessageStreamEvent`` discriminated union because
+    the ``type`` field is dynamic.  Use ``ctx.write_data()`` to emit these.
+    """
+
+    type: str  # "data-{name}", validated by ctx.write_data()
+    data: dict[str, Any]
+    id: str | None = None
+    transient: bool | None = None
+
+
 # ── Abort ──────────────────────────────────────────────────────────────────────
 
 
@@ -199,6 +215,7 @@ __all__ = [
     "ToolOutputErrorEvent",
     "SourceUrlEvent",
     "FileEvent",
+    "DataEvent",
     "ErrorEvent",
     "AbortEvent",
 ]

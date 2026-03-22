@@ -281,6 +281,74 @@ class TestSources:
 
 
 # ---------------------------------------------------------------------------
+# Custom data parts
+# ---------------------------------------------------------------------------
+
+
+class TestWriteData:
+    async def test_write_data_emits_event(self):
+        async def work(ctx):
+            await ctx.write_data("weather", {"city": "SF", "temp": 72})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-weather")
+        assert data_ev["data"] == {"city": "SF", "temp": 72}
+
+    async def test_write_data_type_includes_name(self):
+        async def work(ctx):
+            await ctx.write_data("status", {"state": "loading"})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        assert any(e["type"] == "data-status" for e in events)
+
+    async def test_write_data_with_id(self):
+        async def work(ctx):
+            await ctx.write_data("progress", {"pct": 50}, id="prog-1")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-progress")
+        assert data_ev["id"] == "prog-1"
+
+    async def test_write_data_transient_omits_from_collection(self):
+        """Transient parts send the event but are not collected."""
+
+        async def work(ctx):
+            await ctx.write_data("ping", {"ts": 1}, transient=True)
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-ping")
+        assert data_ev["transient"] is True
+
+    async def test_write_data_non_transient_omits_transient_field(self):
+        async def work(ctx):
+            await ctx.write_data("info", {"x": 1})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-info")
+        assert "transient" not in data_ev
+
+    async def test_write_data_invalid_name_raises(self):
+        ctx = StreamContext()
+        await ctx.store.set("x", 1)  # start context
+        with pytest.raises(ValueError, match="Invalid data part name"):
+            await ctx.write_data("bad name!", {"x": 1})
+        await ctx.finish()
+
+    async def test_write_data_auto_emits_start(self):
+        async def work(ctx):
+            await ctx.write_data("info", {"x": 1})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        assert events[0]["type"] == "start"
+
+
+# ---------------------------------------------------------------------------
 # Files
 # ---------------------------------------------------------------------------
 

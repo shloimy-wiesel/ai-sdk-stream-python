@@ -234,6 +234,66 @@ class TestCollectSources:
 
 
 # ---------------------------------------------------------------------------
+# Custom data part collection
+# ---------------------------------------------------------------------------
+
+
+class TestCollectDataParts:
+    async def test_data_part_recorded(self):
+        async def work(ctx):
+            await ctx.write_data("weather", {"city": "SF"})
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.data_parts) == 1
+        dp = ctx.record.data_parts[0]
+        assert dp.name == "weather"
+        assert dp.data == {"city": "SF"}
+        assert dp.id is None
+
+    async def test_data_part_with_id_recorded(self):
+        async def work(ctx):
+            await ctx.write_data("progress", {"pct": 80}, id="prog-1")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        dp = ctx.record.data_parts[0]
+        assert dp.id == "prog-1"
+
+    async def test_transient_data_part_not_collected(self):
+        async def work(ctx):
+            await ctx.write_data("ping", {"ts": 1}, transient=True)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.data_parts == []
+
+    async def test_data_parts_in_to_dict(self):
+        async def work(ctx):
+            await ctx.write_data("status", {"state": "done"}, id="s-1")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        d = ctx.record.to_dict()
+        assert len(d["data_parts"]) == 1
+        assert d["data_parts"][0]["name"] == "status"
+        assert d["data_parts"][0]["data"] == {"state": "done"}
+        assert d["data_parts"][0]["id"] == "s-1"
+
+    async def test_data_parts_empty_by_default(self):
+        async def work(ctx):
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.data_parts == []
+
+
+# ---------------------------------------------------------------------------
 # File collection
 # ---------------------------------------------------------------------------
 
