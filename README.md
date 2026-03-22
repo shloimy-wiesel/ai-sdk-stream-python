@@ -1,7 +1,7 @@
 # ai-sdk-stream-python
 
 [![PyPI version](https://img.shields.io/pypi/v/ai-sdk-stream-python)](https://pypi.org/project/ai-sdk-stream-python/)
-[![Python](https://img.shields.io/badge/python-3.10--3.12-blue)](https://pypi.org/project/ai-sdk-stream-python/)
+[![Python](https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue)](https://pypi.org/project/ai-sdk-stream-python/)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 A Python library for building [Vercel AI SDK v6](https://sdk.vercel.ai/) **UIMessageStream**-compatible streaming backends.
