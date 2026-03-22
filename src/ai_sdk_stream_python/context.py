@@ -58,6 +58,7 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+from .collect import SourceRecord, StreamRecord, ToolCallRecord
 from .events import (
     BaseEvent,
     FinishEvent,
@@ -108,7 +109,12 @@ class StreamContext:
         "X-Accel-Buffering": "no",
     }
 
-    def __init__(self, message_id: str | None = None) -> None:
+    def __init__(
+        self,
+        message_id: str | None = None,
+        *,
+        collect: bool = False,
+    ) -> None:
         self._message_id: str = message_id or str(uuid.uuid4())
         self._queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
         self.store: StateStore = StateStore()
@@ -119,6 +125,11 @@ class StreamContext:
         self._text_id: str | None = None
         self._reasoning_id: str | None = None
         self._finished: bool = False
+
+        # Collection
+        self._record: StreamRecord | None = (
+            StreamRecord(message_id=self._message_id) if collect else None
+        )
 
     # ── Properties ────────────────────────────────────────────────────────────
 
@@ -139,6 +150,16 @@ class StreamContext:
     @property
     def is_finished(self) -> bool:
         return self._finished
+
+    @property
+    def record(self) -> StreamRecord | None:
+        """
+        The accumulated stream record, or ``None`` if ``collect=False``.
+
+        Populated incrementally during the stream; fully available after
+        ``finish()`` has been called.
+        """
+        return self._record
 
     # ── Low-level sync emit ────────────────────────────────────────────────────
 
@@ -168,6 +189,8 @@ class StreamContext:
         await self._ensure_started()
         if not self._step_open:
             self._step_open = True
+            if self._record is not None:
+                self._record.step_count += 1
             self._queue.put_nowait(StartStepEvent())
 
     async def _ensure_text_closed(self) -> None:
@@ -202,6 +225,8 @@ class StreamContext:
             self._text_id = str(uuid.uuid4())
             self._queue.put_nowait(TextStartEvent(id=self._text_id))
         self._queue.put_nowait(TextDeltaEvent(id=self._text_id, delta=delta))
+        if self._record is not None:
+            self._record.text += delta
 
     async def write_reasoning(self, delta: str) -> None:
         """
@@ -216,6 +241,8 @@ class StreamContext:
             self._reasoning_id = str(uuid.uuid4())
             self._queue.put_nowait(ReasoningStartEvent(id=self._reasoning_id))
         self._queue.put_nowait(ReasoningDeltaEvent(id=self._reasoning_id, delta=delta))
+        if self._record is not None:
+            self._record.reasoning += delta
 
     async def new_step(self) -> None:
         """
@@ -251,16 +278,30 @@ class StreamContext:
                 toolCallId=tcid, toolName=tool_name, input=tool_input
             )
         )
+        if self._record is not None:
+            self._record.tool_calls.append(
+                ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input=tool_input)
+            )
         return ToolCallHandle(toolCallId=tcid, toolName=tool_name)
 
     async def complete_tool_call(self, tool_call_id: str, output: Any) -> None:
         """Emit ``tool-output-available`` with the tool result."""
+        if self._record is not None:
+            for tc in self._record.tool_calls:
+                if tc.tool_call_id == tool_call_id:
+                    tc.output = output
+                    break
         self.write_event_to_stream(
             ToolOutputAvailableEvent(toolCallId=tool_call_id, output=output)
         )
 
     async def fail_tool_call(self, tool_call_id: str, error: str) -> None:
         """Emit ``tool-output-error`` when a tool call fails."""
+        if self._record is not None:
+            for tc in self._record.tool_calls:
+                if tc.tool_call_id == tool_call_id:
+                    tc.error = error
+                    break
         self.write_event_to_stream(
             ToolOutputErrorEvent(toolCallId=tool_call_id, error=error)
         )
@@ -273,6 +314,10 @@ class StreamContext:
     ) -> None:
         """Emit a ``source-url`` event (document / citation reference)."""
         await self._ensure_started()
+        if self._record is not None:
+            self._record.sources.append(
+                SourceRecord(source_id=source_id, url=url, title=title)
+            )
         self.write_event_to_stream(
             SourceUrlEvent(sourceId=source_id, url=url, title=title)
         )
@@ -302,6 +347,8 @@ class StreamContext:
         await self._ensure_started()
         await self._ensure_step_closed()
         self._finished = True
+        if self._record is not None:
+            self._record.finish_reason = finish_reason
         self._queue.put_nowait(
             FinishEvent(finishReason=finish_reason, messageMetadata=message_metadata)
         )

@@ -42,6 +42,9 @@ Quickstart::
         )
 """
 
+from .collect import SourceRecord as SourceRecord
+from .collect import StreamRecord as StreamRecord
+from .collect import ToolCallRecord as ToolCallRecord
 from .context import StreamContext, ToolCallHandle
 from .events import (
     BaseEvent,
@@ -70,6 +73,10 @@ __all__ = [
     "StreamContext",
     "ToolCallHandle",
     "StateStore",
+    # Collection
+    "StreamRecord",
+    "ToolCallRecord",
+    "SourceRecord",
     # Base / union
     "BaseEvent",
     "UIMessageStreamEvent",
