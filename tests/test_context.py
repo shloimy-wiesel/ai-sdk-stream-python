@@ -159,6 +159,64 @@ class TestReasoning:
 # ---------------------------------------------------------------------------
 
 
+class TestStreamingToolInput:
+    async def test_start_stream_finish_sequence(self):
+        """start_tool_input → stream_tool_input_delta* → finish_tool_input ordering."""
+
+        async def work(ctx):
+            handle = await ctx.start_tool_input("search")
+            await ctx.stream_tool_input_delta(handle.toolCallId, '{"q":')
+            await ctx.stream_tool_input_delta(handle.toolCallId, '"cats"}')
+            await ctx.finish_tool_input(handle.toolCallId, "search", {"q": "cats"})
+            await ctx.complete_tool_call(handle.toolCallId, ["cat1"])
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        ti_start = types.index("tool-input-start")
+        deltas = [i for i, t in enumerate(types) if t == "tool-input-delta"]
+        ti_avail = types.index("tool-input-available")
+        assert ti_start < deltas[0] < deltas[1] < ti_avail
+
+    async def test_delta_ids_match_start(self):
+        async def work(ctx):
+            handle = await ctx.start_tool_input("calc")
+            await ctx.stream_tool_input_delta(handle.toolCallId, '{"x": 1}')
+            await ctx.finish_tool_input(handle.toolCallId, "calc", {"x": 1})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        start = next(e for e in events if e["type"] == "tool-input-start")
+        delta = next(e for e in events if e["type"] == "tool-input-delta")
+        avail = next(e for e in events if e["type"] == "tool-input-available")
+        assert start["toolCallId"] == delta["toolCallId"] == avail["toolCallId"]
+
+    async def test_delta_carries_input_text(self):
+        async def work(ctx):
+            handle = await ctx.start_tool_input("fn")
+            await ctx.stream_tool_input_delta(handle.toolCallId, "chunk1")
+            await ctx.finish_tool_input(handle.toolCallId, "fn", {})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        delta = next(e for e in events if e["type"] == "tool-input-delta")
+        assert delta["inputTextDelta"] == "chunk1"
+
+    async def test_begin_tool_call_still_works(self):
+        """begin_tool_call() backward-compat: no deltas, input known upfront."""
+
+        async def work(ctx):
+            handle = await ctx.begin_tool_call("lookup", {"id": 1})
+            await ctx.complete_tool_call(handle.toolCallId, "result")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        assert "tool-input-start" in types
+        assert "tool-input-available" in types
+        assert "tool-input-delta" not in types
+
+
 class TestToolCalls:
     async def test_tool_call_complete(self):
         async def work(ctx):

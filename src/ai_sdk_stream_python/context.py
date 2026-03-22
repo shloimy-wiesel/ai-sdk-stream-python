@@ -85,6 +85,7 @@ from .events import (
     TextEndEvent,
     TextStartEvent,
     ToolInputAvailableEvent,
+    ToolInputDeltaEvent,
     ToolInputStartEvent,
     ToolOutputAvailableEvent,
     ToolOutputErrorEvent,
@@ -316,6 +317,63 @@ class StreamContext(Generic[_InfoT]):
                 ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input=tool_input)
             )
         return ToolCallHandle(toolCallId=tcid, toolName=tool_name)
+
+    async def start_tool_input(
+        self,
+        tool_name: str,
+        *,
+        tool_call_id: str | None = None,
+    ) -> ToolCallHandle:
+        """
+        Emit ``tool-input-start`` and return a handle for streaming deltas.
+
+        Use this when tool arguments arrive incrementally (e.g. from an LLM
+        stream).  Follow with :meth:`stream_tool_input_delta` calls and
+        finish with :meth:`finish_tool_input`.
+        """
+        await self._ensure_step_open()
+        await self._ensure_text_closed()
+        await self._ensure_reasoning_closed()
+        tcid = tool_call_id or str(uuid.uuid4())
+        self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
+        if self._record is not None:
+            self._record.tool_calls.append(
+                ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input={})
+            )
+        return ToolCallHandle(toolCallId=tcid, toolName=tool_name)
+
+    async def stream_tool_input_delta(
+        self, tool_call_id: str, input_text_delta: str
+    ) -> None:
+        """Emit a ``tool-input-delta`` for an in-progress tool call."""
+        self.write_event_to_stream(
+            ToolInputDeltaEvent(
+                toolCallId=tool_call_id, inputTextDelta=input_text_delta
+            )
+        )
+
+    async def finish_tool_input(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        input: dict[str, Any],
+    ) -> None:
+        """
+        Emit ``tool-input-available`` to close a streaming tool call.
+
+        Updates the collected :class:`~collect.ToolCallRecord` with the
+        final *input* if collection is enabled.
+        """
+        if self._record is not None:
+            for tc in self._record.tool_calls:
+                if tc.tool_call_id == tool_call_id:
+                    tc.input = input
+                    break
+        self.write_event_to_stream(
+            ToolInputAvailableEvent(
+                toolCallId=tool_call_id, toolName=tool_name, input=input
+            )
+        )
 
     async def complete_tool_call(self, tool_call_id: str, output: Any) -> None:
         """Emit ``tool-output-available`` with the tool result."""

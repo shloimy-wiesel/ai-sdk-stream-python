@@ -177,6 +177,24 @@ class TestCollectToolCalls:
         assert ctx.record.tool_calls[1].tool_name == "lookup"
         assert ctx.record.tool_calls[1].output == "result-b"
 
+    async def test_streaming_tool_input_recorded(self):
+        """start_tool_input / finish_tool_input updates the record correctly."""
+
+        async def work(ctx):
+            handle = await ctx.start_tool_input("search")
+            await ctx.stream_tool_input_delta(handle.toolCallId, '{"q":"cats"}')
+            await ctx.finish_tool_input(handle.toolCallId, "search", {"q": "cats"})
+            await ctx.complete_tool_call(handle.toolCallId, ["cat1"])
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.tool_calls) == 1
+        tc = ctx.record.tool_calls[0]
+        assert tc.tool_name == "search"
+        assert tc.input == {"q": "cats"}  # filled in by finish_tool_input
+        assert tc.output == ["cat1"]
+
     async def test_completing_b_does_not_overwrite_a(self):
         async def work(ctx):
             await ctx.begin_tool_call("toolA", {"x": 1})
