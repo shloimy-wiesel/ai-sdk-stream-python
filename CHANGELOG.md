@@ -1,6 +1,18 @@
 # CHANGELOG
 
 
+## v0.2.0-a.1 (2026-03-22)
+
+### Features
+
+- Add collect=True option to StreamContext for recording stream data
+  ([`a594acc`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/a594acc80a6529e7a54c1fe8b7d3fd78dfa9cee8))
+
+Adds an opt-in collect: bool = False parameter to StreamContext that accumulates all emitted content
+  (text, reasoning, tool calls, sources, step count, finish reason) into a StreamRecord accessible
+  via ctx.record. Useful for persisting conversation turns to a database after streaming.
+
+
 ## v0.1.2-a.1 (2026-03-22)
 
 ### Bug Fixes
