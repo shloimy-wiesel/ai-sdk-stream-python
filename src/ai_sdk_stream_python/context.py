@@ -104,7 +104,7 @@ class StreamContext(Generic[_InfoT]):
     ----------
     store : StateStore
         Async key-value store shared across the background task and any caller.
-    info : _InfoT
+    info : _InfoT | None
         Static, read-only metadata supplied at construction time (e.g. user_id,
         rate_limit).  Pass any Pydantic ``BaseModel`` instance as
         ``custom_information=`` — it is available unchanged for the entire
