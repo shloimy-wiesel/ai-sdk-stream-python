@@ -108,8 +108,8 @@ The store uses an `asyncio.Lock` — safe to use across concurrent coroutines.
 # Reasoning (chain-of-thought)
 await ctx.write_reasoning("Let me think…")
 
-# Switch to a new step (closes open parts, opens new step)
-await ctx.new_step()
+# Text answer
+await ctx.write_text("Here is the answer…")
 
 # Tool calls
 handle = await ctx.begin_tool_call("searchDocs", {"query": "hello"})
@@ -118,15 +118,32 @@ await ctx.complete_tool_call(handle.toolCallId, result)
 # or on error:
 await ctx.fail_tool_call(handle.toolCallId, "timeout")
 
-# Text answer
-await ctx.write_text("Here is the answer…")
-
 # Source citations
 await ctx.write_source("doc-1", "https://example.com/doc", "My Doc")
 
 # Finish (closes all open parts/steps, emits finish + [DONE])
 await ctx.finish(finish_reason="stop")
 ```
+
+### `new_step()` — when to use it
+
+`new_step()` closes any open text/reasoning part and the current step (`finish-step`), then immediately opens a new step (`start-step`). Use it when you want an explicit step boundary in the stream — for example in a multi-turn agentic flow:
+
+```python
+# Step 1: reasoning
+await ctx.write_reasoning("Let me think…")
+
+# Step 2: tool call
+await ctx.new_step()
+handle = await ctx.begin_tool_call("search", {"q": query})
+await ctx.complete_tool_call(handle.toolCallId, results)
+
+# Step 3: final answer
+await ctx.new_step()
+await ctx.write_text("Based on the results…")
+```
+
+**You don't need `new_step()` for simple responses.** The high-level helpers (`write_text`, `write_reasoning`, `begin_tool_call`) already auto-close each other within the same step, and `finish()` closes everything. Only call `new_step()` when you want the frontend to see distinct steps — e.g. separate reasoning, tool-use, and answer phases.
 
 ### Low-level / raw events
 
