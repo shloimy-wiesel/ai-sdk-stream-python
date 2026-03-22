@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.1.2-b.1 (2026-03-22)
+
+### Bug Fixes
+
+- Trigger new release
+  ([`059f64f`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/059f64f50c17b1d52a97f40647d5b070440e3691))
+
+
 ## v0.1.1 (2026-03-22)
 
 ### Bug Fixes
