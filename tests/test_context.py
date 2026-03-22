@@ -13,6 +13,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from pydantic import BaseModel
+
 from ai_sdk_stream_python import StreamContext
 from ai_sdk_stream_python.events import (
     StartEvent,
@@ -378,6 +380,66 @@ class TestStateStore:
         await db_service(ctx)
         greeting = await llm_service(ctx)
         assert greeting == "Hello Bob (pro)"
+
+
+# ---------------------------------------------------------------------------
+# custom_information
+# ---------------------------------------------------------------------------
+
+
+class _RequestInfo(BaseModel):
+    user_id: str
+    rate_limit: int
+
+
+class TestCustomInformation:
+    async def test_default_is_none(self):
+        """ctx.info is None when no custom_information is passed."""
+        ctx = StreamContext()
+        assert ctx.info is None
+
+    async def test_stored_and_accessible(self):
+        """ctx.info returns the exact Pydantic model passed at construction."""
+        info = _RequestInfo(user_id="u_42", rate_limit=100)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+        assert ctx.info is info
+        assert ctx.info is not None
+        assert ctx.info.user_id == "u_42"
+        assert ctx.info.rate_limit == 100
+
+    async def test_is_immutable(self):
+        """ctx.info has no setter — attempts to assign raise AttributeError."""
+        info = _RequestInfo(user_id="u_1", rate_limit=50)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+        with pytest.raises(AttributeError):
+            ctx.info = _RequestInfo(user_id="u_2", rate_limit=10)  # type: ignore[misc]
+
+    async def test_survives_full_stream(self):
+        """ctx.info remains accessible after the stream has been finished."""
+        info = _RequestInfo(user_id="u_99", rate_limit=200)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+
+        async def _work():
+            await ctx.write_text("hello")
+            await ctx.finish()
+
+        asyncio.create_task(_work())
+        await collect_stream(ctx)
+
+        assert ctx.info is not None
+        assert ctx.info.user_id == "u_99"
+
+    async def test_available_in_service_layer(self):
+        """Demonstrates the intended usage: info travels through service layers."""
+
+        async def _service(c: StreamContext[_RequestInfo]) -> str:
+            assert c.info is not None
+            return f"Processing for user {c.info.user_id}"
+
+        info = _RequestInfo(user_id="u_7", rate_limit=10)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+        result = await _service(ctx)
+        assert result == "Processing for user u_7"
 
 
 # ---------------------------------------------------------------------------
