@@ -2,7 +2,7 @@
 name = "ai-sdk-stream-python-example"
 version = "0.1.0"
 description = "Example FastAPI backend for ai-sdk-stream-python"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",

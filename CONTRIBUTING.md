@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- [Python 3.9+](https://www.python.org/)
+- [Python 3.10+](https://www.python.org/)
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — fast Python package manager
 - [Lefthook](https://lefthook.dev) — git hook manager
 

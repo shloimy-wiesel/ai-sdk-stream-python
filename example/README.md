@@ -32,7 +32,7 @@ LLM (Mistral / OpenAI / etc.)
 
 | Tool | Version |
 |------|---------|
-| Python | ≥ 3.9 |
+| Python | ≥ 3.10 |
 | [uv](https://docs.astral.sh/uv/) | latest |
 | Node.js | ≥ 18 |
 | npm / pnpm / yarn | any |

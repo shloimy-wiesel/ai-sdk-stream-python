@@ -64,7 +64,7 @@ Request handler creates StreamContext
 
 ## Standards
 
-- **Python 3.9+** target; use `from __future__ import annotations` for forward refs.
+- **Python 3.10+** target.
 - **Conventional Commits** enforced on commit messages (`feat:`, `fix:`, `chore:`, etc.). `feat!`/`fix!` trigger major version bumps.
 - Ruff line length: 88, double quotes. Pyright in standard mode.
 - `asyncio_mode = "auto"` in pytest — all test coroutines run automatically.
