@@ -60,11 +60,12 @@ from typing import Any, ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel
 
-from .collect import SourceRecord, StreamRecord, ToolCallRecord
+from .collect import FileRecord, SourceRecord, StreamRecord, ToolCallRecord
 from .events import (
     AbortEvent,
     BaseEvent,
     ErrorEvent,
+    FileEvent,
     FinishEvent,
     FinishStepEvent,
     ReasoningDeltaEvent,
@@ -330,6 +331,18 @@ class StreamContext(Generic[_InfoT]):
         self.write_event_to_stream(
             ToolOutputErrorEvent(toolCallId=tool_call_id, error=error)
         )
+
+    async def write_file(self, url: str, media_type: str) -> None:
+        """
+        Emit a ``file`` event (image, PDF, or other file content).
+
+        Auto-emits ``start`` and ``start-step`` if not yet open.
+        On the frontend this produces a ``FileUIPart`` in ``message.parts``.
+        """
+        await self._ensure_step_open()
+        if self._record is not None:
+            self._record.files.append(FileRecord(url=url, media_type=media_type))
+        self.write_event_to_stream(FileEvent(url=url, mediaType=media_type))
 
     async def write_source(
         self,

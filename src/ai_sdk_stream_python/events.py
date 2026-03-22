@@ -129,6 +129,15 @@ class SourceUrlEvent(BaseEvent):
     title: str | None = None
 
 
+# ── Files ──────────────────────────────────────────────────────────────────────
+
+
+class FileEvent(BaseEvent):
+    type: Literal["file"] = "file"
+    url: str
+    mediaType: str
+
+
 # ── Error ──────────────────────────────────────────────────────────────────────
 
 
@@ -162,6 +171,7 @@ UIMessageStreamEvent = Annotated[
     | ToolOutputAvailableEvent
     | ToolOutputErrorEvent
     | SourceUrlEvent
+    | FileEvent
     | ErrorEvent
     | AbortEvent
     | FinishStepEvent
@@ -188,6 +198,7 @@ __all__ = [
     "ToolOutputAvailableEvent",
     "ToolOutputErrorEvent",
     "SourceUrlEvent",
+    "FileEvent",
     "ErrorEvent",
     "AbortEvent",
 ]

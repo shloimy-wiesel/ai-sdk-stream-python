@@ -33,6 +33,14 @@ class SourceRecord:
 
 
 @dataclass
+class FileRecord:
+    """A file/image emitted via ``write_file``."""
+
+    url: str
+    media_type: str
+
+
+@dataclass
 class StreamRecord:
     """
     Accumulated content from one assistant stream turn.
@@ -66,6 +74,7 @@ class StreamRecord:
     reasoning: str = ""
     tool_calls: list[ToolCallRecord] = field(default_factory=list)
     sources: list[SourceRecord] = field(default_factory=list)
+    files: list[FileRecord] = field(default_factory=list)
     finish_reason: str | None = None
     step_count: int = 0
 
@@ -93,9 +102,16 @@ class StreamRecord:
                 }
                 for s in self.sources
             ],
+            "files": [
+                {
+                    "url": f.url,
+                    "media_type": f.media_type,
+                }
+                for f in self.files
+            ],
             "finish_reason": self.finish_reason,
             "step_count": self.step_count,
         }
 
 
-__all__ = ["SourceRecord", "StreamRecord", "ToolCallRecord"]
+__all__ = ["FileRecord", "SourceRecord", "StreamRecord", "ToolCallRecord"]

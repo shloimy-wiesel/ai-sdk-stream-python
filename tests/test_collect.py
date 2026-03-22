@@ -234,6 +234,55 @@ class TestCollectSources:
 
 
 # ---------------------------------------------------------------------------
+# File collection
+# ---------------------------------------------------------------------------
+
+
+class TestCollectFiles:
+    async def test_file_recorded(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/img.png", "image/png")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.files) == 1
+        f = ctx.record.files[0]
+        assert f.url == "https://example.com/img.png"
+        assert f.media_type == "image/png"
+
+    async def test_multiple_files_recorded(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/a.png", "image/png")
+            await ctx.write_file("https://example.com/b.pdf", "application/pdf")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.files) == 2
+
+    async def test_files_in_to_dict(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/img.png", "image/png")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        d = ctx.record.to_dict()
+        assert len(d["files"]) == 1
+        assert d["files"][0]["url"] == "https://example.com/img.png"
+        assert d["files"][0]["media_type"] == "image/png"
+
+    async def test_files_empty_by_default(self):
+        async def work(ctx):
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.files == []
+
+
+# ---------------------------------------------------------------------------
 # Step count
 # ---------------------------------------------------------------------------
 

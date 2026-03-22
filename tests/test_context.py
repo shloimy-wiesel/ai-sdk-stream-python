@@ -281,6 +281,44 @@ class TestSources:
 
 
 # ---------------------------------------------------------------------------
+# Files
+# ---------------------------------------------------------------------------
+
+
+class TestFiles:
+    async def test_write_file_emits_event(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/img.png", "image/png")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        file_ev = next(e for e in events if e["type"] == "file")
+        assert file_ev["url"] == "https://example.com/img.png"
+        assert file_ev["mediaType"] == "image/png"
+
+    async def test_write_file_auto_emits_step(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/doc.pdf", "application/pdf")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        assert "start-step" in types
+
+    async def test_multiple_files(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/a.png", "image/png")
+            await ctx.write_file("https://example.com/b.jpg", "image/jpeg")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        file_evs = [e for e in events if e["type"] == "file"]
+        assert len(file_evs) == 2
+        assert file_evs[0]["url"] == "https://example.com/a.png"
+        assert file_evs[1]["url"] == "https://example.com/b.jpg"
+
+
+# ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
 
