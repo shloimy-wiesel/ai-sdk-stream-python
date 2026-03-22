@@ -56,7 +56,9 @@ import asyncio
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Generic, TypeVar
+
+from pydantic import BaseModel
 
 from .collect import SourceRecord, StreamRecord, ToolCallRecord
 from .events import (
@@ -79,6 +81,8 @@ from .events import (
 )
 from .state import StateStore
 
+_InfoT = TypeVar("_InfoT", bound=BaseModel)
+
 
 @dataclass
 class ToolCallHandle:
@@ -88,7 +92,7 @@ class ToolCallHandle:
     toolName: str
 
 
-class StreamContext:
+class StreamContext(Generic[_InfoT]):
     """
     A stateful context for producing a Vercel AI SDK v6 UIMessageStream.
 
@@ -100,6 +104,11 @@ class StreamContext:
     ----------
     store : StateStore
         Async key-value store shared across the background task and any caller.
+    info : _InfoT
+        Static, read-only metadata supplied at construction time (e.g. user_id,
+        rate_limit).  Pass any Pydantic ``BaseModel`` instance as
+        ``custom_information=`` — it is available unchanged for the entire
+        lifetime of the context.  Defaults to ``None`` when not provided.
     """
 
     response_headers: ClassVar[dict[str, str]] = {
@@ -114,10 +123,12 @@ class StreamContext:
         message_id: str | None = None,
         *,
         collect: bool = False,
+        custom_information: _InfoT | None = None,
     ) -> None:
         self._message_id: str = message_id or str(uuid.uuid4())
         self._queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
         self.store: StateStore = StateStore()
+        self._info: _InfoT | None = custom_information
 
         # Lifecycle state
         self._started: bool = False
@@ -150,6 +161,18 @@ class StreamContext:
     @property
     def is_finished(self) -> bool:
         return self._finished
+
+    @property
+    def info(self) -> _InfoT | None:
+        """
+        Static, read-only metadata supplied at construction time.
+
+        Returns the ``custom_information`` value passed to ``__init__``, or
+        ``None`` if none was provided.  Useful for carrying request-scoped
+        data (e.g. ``user_id``, ``rate_limit``) through service layers without
+        threading extra function arguments.
+        """
+        return self._info
 
     @property
     def record(self) -> StreamRecord | None:

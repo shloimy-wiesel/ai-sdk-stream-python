@@ -53,6 +53,7 @@ async def my_work(ctx):
 | **Typed events** | All 16 v6 protocol events as Pydantic models |
 | **Lifecycle auto-management** | `start`, `start-step`, `text-start` etc. are emitted automatically |
 | **Shared state** | `ctx.store.get/set()` — dot-path key-value store shared across modules |
+| **Custom information** | `ctx.info` — typed, read-only Pydantic model for request-scoped metadata |
 | **Pass as parameter** | `ctx` flows through your services like a logger or DB session |
 | **Stream collection** | `collect=True` records all emitted content into `ctx.record` for DB persistence |
 | **Low-level escape hatch** | `ctx.write(event)` / `ctx.write_event_to_stream(ev)` for raw control |
@@ -112,6 +113,33 @@ plan = await ctx.store.get("user.plan", default="free")  # with default
 ```
 
 The store uses an `asyncio.Lock` — safe to use across concurrent coroutines.
+
+### Custom information (`ctx.info`)
+
+Pass a Pydantic model at construction time to carry static, read-only request-scoped data (e.g. `user_id`, `rate_limit`, `tenant_id`) through every service layer without threading extra arguments:
+
+```python
+from pydantic import BaseModel
+from ai_sdk_stream_python import StreamContext
+
+class RequestInfo(BaseModel):
+    user_id: str
+    rate_limit: int
+
+# Typed constructor — IDE infers ctx.info as RequestInfo
+ctx: StreamContext[RequestInfo] = StreamContext(
+    custom_information=RequestInfo(user_id="u_42", rate_limit=100)
+)
+
+# In any service layer that receives ctx:
+if ctx.info is not None:
+    print(ctx.info.user_id)    # "u_42"
+    print(ctx.info.rate_limit) # 100
+```
+
+- `ctx.info` is **read-only** (no setter). For mutable runtime state use `ctx.store`.
+- Defaults to `None` when `custom_information` is not passed.
+- `StreamContext` is generic — annotate as `StreamContext[YourModel]` for full IDE support.
 
 ### Writing to the stream
 
@@ -216,6 +244,7 @@ ctx.message_id           # the message ID in the start event
 ctx.current_text_id      # ID of open text part, or None
 ctx.current_reasoning_id # ID of open reasoning part, or None
 ctx.is_finished          # True after finish()/abort()
+ctx.info                 # custom_information model, or None
 ctx.response_headers     # dict with x-vercel-ai-ui-message-stream: v1
 ```
 
@@ -357,9 +386,9 @@ npm run dev
 uv run pytest tests/ -v
 ```
 
-51 tests covering: basic lifecycle, reasoning ↔ text transitions, tool calls,
+56 tests covering: basic lifecycle, reasoning ↔ text transitions, tool calls,
 multi-step flows, source events, edge cases (double finish, abort, write after finish),
-StateStore integration, and stream collection (`collect=True`).
+StateStore integration, stream collection (`collect=True`), and custom information (`ctx.info`).
 
 ---
 
