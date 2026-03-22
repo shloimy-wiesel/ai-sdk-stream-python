@@ -129,6 +129,14 @@ class SourceUrlEvent(BaseEvent):
     title: str | None = None
 
 
+# ── Error ──────────────────────────────────────────────────────────────────────
+
+
+class ErrorEvent(BaseEvent):
+    type: Literal["error"] = "error"
+    errorText: str
+
+
 # ── Discriminated union ────────────────────────────────────────────────────────
 
 UIMessageStreamEvent = Annotated[
@@ -146,6 +154,7 @@ UIMessageStreamEvent = Annotated[
     | ToolOutputAvailableEvent
     | ToolOutputErrorEvent
     | SourceUrlEvent
+    | ErrorEvent
     | FinishStepEvent
     | FinishEvent,
     Field(discriminator="type"),
@@ -170,4 +179,5 @@ __all__ = [
     "ToolOutputAvailableEvent",
     "ToolOutputErrorEvent",
     "SourceUrlEvent",
+    "ErrorEvent",
 ]

@@ -63,6 +63,7 @@ from pydantic import BaseModel
 from .collect import SourceRecord, StreamRecord, ToolCallRecord
 from .events import (
     BaseEvent,
+    ErrorEvent,
     FinishEvent,
     FinishStepEvent,
     ReasoningDeltaEvent,
@@ -387,6 +388,20 @@ class StreamContext(Generic[_InfoT]):
         if self._finished:
             return
         self._finished = True
+        self._queue.put_nowait(None)
+
+    async def error(self, error_text: str) -> None:
+        """
+        Emit an ``error`` event and terminate the stream.
+
+        The AI SDK v6 ``useChat`` hook surfaces this via its ``error`` object.
+        Safe to call multiple times; subsequent calls are no-ops.
+        """
+        if self._finished:
+            return
+        await self._ensure_started()
+        self._finished = True
+        self._queue.put_nowait(ErrorEvent(errorText=error_text))
         self._queue.put_nowait(None)
 
     # ── SSE async generator ───────────────────────────────────────────────────

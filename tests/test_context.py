@@ -307,6 +307,38 @@ class TestEdgeCases:
         events = await collect_stream(ctx)
         assert not any(e["type"] == "finish" for e in events)
 
+    async def test_error_emits_error_event_and_terminates(self):
+        """ctx.error() emits an error event then [DONE] — no finish event."""
+
+        async def work(ctx):
+            await ctx.write_text("partial")
+            await ctx.error("something went wrong")
+
+        events = await run_and_collect(work)
+        error_ev = next(e for e in events if e["type"] == "error")
+        assert error_ev["errorText"] == "something went wrong"
+        assert not any(e["type"] == "finish" for e in events)
+
+    async def test_error_is_idempotent(self):
+        """Calling ctx.error() twice only emits one error event."""
+
+        async def work(ctx):
+            await ctx.error("first")
+            await ctx.error("second")  # no-op
+
+        events = await run_and_collect(work)
+        assert sum(1 for e in events if e["type"] == "error") == 1
+
+    async def test_error_auto_emits_start(self):
+        """ctx.error() without any prior writes still emits start first."""
+
+        async def work(ctx):
+            await ctx.error("oops")
+
+        events = await run_and_collect(work)
+        assert events[0]["type"] == "start"
+        assert any(e["type"] == "error" for e in events)
+
     async def test_message_id_propagated(self):
         async def work(ctx):
             await ctx.finish()
