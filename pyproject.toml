@@ -21,3 +21,41 @@ dev = [
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+# ── python-semantic-release ────────────────────────────────────────────────
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+build_command = "uv build"
+dist_path = "dist/"
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+# Commit types that trigger a patch bump
+patch_tags = ["fix", "perf"]
+# Commit types that trigger a minor bump
+minor_tags = ["feat"]
+# All recognised commit types (everything else → no release)
+allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"]
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.beta]
+match = "beta"
+prerelease = true
+prerelease_token = "b"
+
+[tool.semantic_release.branches.alpha]
+match = "alpha"
+prerelease = true
+prerelease_token = "a"
+
+[tool.semantic_release.changelog]
+# Generate full changelog entries grouped by type (features, fixes, …)
+exclude_commit_patterns = [
+    "^(chore|ci|docs|style|test|build)(\\(.+\\))?!?:",
+]

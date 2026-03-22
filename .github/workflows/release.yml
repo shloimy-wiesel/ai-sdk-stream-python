@@ -1,0 +1,116 @@
+name: Release
+
+# Triggered on every push to the versioned branches.
+# main  → stable releases  (1.2.0)
+# beta  → beta pre-releases (1.2.0b1)
+# alpha → alpha pre-releases (1.2.0a1)
+
+on:
+  push:
+    branches: [main, beta, alpha]
+
+jobs:
+  # ── 1. Tests ────────────────────────────────────────────────────────────────
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv + Python
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Run tests
+        run: uv run pytest --tb=short -q
+
+  # ── 2. Semantic Release ─────────────────────────────────────────────────────
+  release:
+    name: Semantic Release
+    needs: test
+    runs-on: ubuntu-latest
+    # Prevent two release jobs from racing each other.
+    concurrency: release
+
+    permissions:
+      contents: write   # push version-bump commit + tag
+      id-token: write   # (needed if PSR ever uploads attestations)
+
+    outputs:
+      released: ${{ steps.release.outputs.released }}
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history is required for PSR to compute the next version.
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run python-semantic-release
+        id: release
+        uses: python-semantic-release/python-semantic-release@v9
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 3. Build ────────────────────────────────────────────────────────────────
+  build:
+    name: Build
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      # Checkout the exact commit that was tagged by PSR.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # ── 4. Publish to PyPI ──────────────────────────────────────────────────────
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [release, build]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+
+    # Configure the "pypi" environment in your repo settings for deployment
+    # protection rules (e.g. required reviewers for production releases).
+    environment:
+      name: pypi
+      url: https://pypi.org/p/ai-sdk-stream-python/${{ needs.release.outputs.version }}
+
+    permissions:
+      id-token: write  # OIDC trusted publishing — no API token required
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
