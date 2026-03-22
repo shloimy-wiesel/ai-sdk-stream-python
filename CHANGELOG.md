@@ -1,6 +1,58 @@
 # CHANGELOG
 
 
+## v0.2.0-a.3 (2026-03-22)
+
+### Bug Fixes
+
+- Abort() emits proper abort event per v6 spec
+  ([`093862b`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/093862b6ce97c463a6248a31ac2a06760d0338d6))
+
+Add AbortEvent model (type: "abort", reason: str | None) and update ctx.abort() to accept an
+  optional reason and emit the event before the [DONE] sentinel. Backward-compatible: bare
+  ctx.abort() still works and omits the reason field from the wire output.
+
+Resolves: #13
+
+### Features
+
+- Add custom data parts and ctx.write_data() helper
+  ([`036fc74`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/036fc7446dd63df7bc49096ea207175bbce8766b))
+
+Add DataEvent model (dynamic data-{name} type), ctx.write_data() with name validation and transient
+  flag, DataPartRecord for collection, and data_parts list on StreamRecord with to_dict() support.
+  Transient parts are sent on the wire but not persisted to ctx.record.
+
+Resolves: #10
+
+- Add error event type and ctx.error() helper
+  ([`13836d4`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/13836d4ee7f0573a2c45069e8d191e20a8d9c5e0))
+
+Add ErrorEvent Pydantic model (type: "error", errorText: str), ctx.error(error_text) which emits the
+  event then terminates the stream, and exports ErrorEvent from the top-level package.
+
+Resolves: #8
+
+- Add file event type and ctx.write_file() helper
+  ([`d11d6ec`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/d11d6ec169a071a84c17a74ccac6e9d9748e70e7))
+
+Add FileEvent model (type: "file", url, mediaType), ctx.write_file() which auto-emits
+  start/start-step before the event, FileRecord for collection, and files list on StreamRecord with
+  to_dict() support.
+
+Resolves: #9
+
+- Add streaming tool input delta helpers
+  ([`45baa02`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/45baa0280257464aa9df375938d069bc573a2510))
+
+Add start_tool_input(), stream_tool_input_delta(), and finish_tool_input() to StreamContext.
+  start_tool_input emits tool-input-start and returns a ToolCallHandle; each stream_tool_input_delta
+  emits a tool-input-delta; finish_tool_input emits tool-input-available and updates the collected
+  ToolCallRecord with the final input dict. begin_tool_call() is unchanged.
+
+Resolves: #11
+
+
 ## v0.2.0-a.2 (2026-03-22)
 
 ### Features
