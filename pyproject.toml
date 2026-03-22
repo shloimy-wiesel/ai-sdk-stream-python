@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "copilot-swe-agent[bot]", email = "198982749+Copilot@users.noreply.github.com" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.128.8",
     "pydantic>=2.12.5",
@@ -15,3 +15,92 @@ dependencies = [
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.390",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+# ── Ruff ───────────────────────────────────────────────────────────────────────
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes  (undefined names, unused imports)
+    "I",     # isort
+    "B",     # flake8-bugbear (common bugs & anti-patterns)
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade  (modernise to target Python version)
+    "SIM",   # flake8-simplify
+    "ASYNC", # async best-practices
+    "T20",   # no print() / pprint() left in code
+    "RUF",   # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long — handled by the formatter
+    "RUF022", # __all__ sort order is intentional (public API order)
+    "SIM108", # ternary over if/else — not always more readable
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "RUF006", # asyncio.create_task ref — test helper pattern
+    "T20",    # print() allowed in tests for debugging
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+# ── Pyright ────────────────────────────────────────────────────────────────────
+[tool.pyright]
+pythonVersion = "3.10"
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "standard"
+
+# ── python-semantic-release ────────────────────────────────────────────────
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+build_command = "uv build"
+dist_path = "dist/"
+changelog_file = "CHANGELOG.md"
+
+[tool.semantic_release.commit_parser_options]
+# Commit types that trigger a patch bump
+patch_tags = ["fix", "perf"]
+# Commit types that trigger a minor bump
+minor_tags = ["feat"]
+# All recognised commit types (everything else → no release)
+allowed_tags = ["build", "chore", "ci", "docs", "feat", "fix", "perf", "refactor", "revert", "style", "test"]
+
+[tool.semantic_release.branches.main]
+match = "main"
+prerelease = false
+
+[tool.semantic_release.branches.beta]
+match = "beta"
+prerelease = true
+prerelease_token = "b"
+
+[tool.semantic_release.branches.alpha]
+match = "alpha"
+prerelease = true
+prerelease_token = "a"
+
+[tool.semantic_release.changelog]
+# Generate full changelog entries grouped by type (features, fixes, …)
+exclude_commit_patterns = [
+    "^(chore|ci|docs|style|test|build)(\\(.+\\))?!?:",
+]

@@ -1,25 +1,97 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
+"""
+ai-sdk-stream-python
+====================
 
-app = FastAPI(title="ai-sdk-stream-python", version="0.1.0")
+A Python library for building Vercel AI SDK v6 UIMessageStream-compatible
+streaming backends.
+
+Core idea (inspired by llama-index-workflows):
+  - ``StreamContext`` holds shared **state** (``ctx.store.get/set``) and
+    emits **typed stream events** (``ctx.write_text``, ``ctx.write_reasoning``,
+    ``ctx.begin_tool_call``, …).
+  - The context tracks the stream lifecycle so you never have to manually emit
+    ``start``, ``start-step``, ``text-start`` etc. — they are auto-emitted.
+  - All wire-protocol events are **Pydantic models** (``TextDeltaEvent``, …).
+
+Quickstart::
+
+    from fastapi import FastAPI
+    from fastapi.responses import StreamingResponse
+    from ai_sdk_stream_python import StreamContext
+    import asyncio
+
+    app = FastAPI()
 
 
-class Message(BaseModel):
-    id: int
-    content: str
+    @app.post("/chat")
+    async def chat():
+        ctx = StreamContext()
 
+        async def _work():
+            try:
+                await ctx.write_text("Hello ")
+                await ctx.write_text("world!")
+            finally:
+                await ctx.finish()
 
-_dummy_messages: list[Message] = [
-    Message(id=1, content="Hello from ai-sdk-stream-python!"),
-    Message(id=2, content="This is a dummy streaming message."),
+        asyncio.create_task(_work())
+        return StreamingResponse(
+            ctx.stream(),
+            media_type="text/event-stream",
+            headers=ctx.response_headers,
+        )
+"""
+
+from .context import StreamContext, ToolCallHandle
+from .events import (
+    BaseEvent,
+    FinishEvent,
+    FinishStepEvent,
+    ReasoningDeltaEvent,
+    ReasoningEndEvent,
+    ReasoningStartEvent,
+    SourceUrlEvent,
+    StartEvent,
+    StartStepEvent,
+    TextDeltaEvent,
+    TextEndEvent,
+    TextStartEvent,
+    ToolInputAvailableEvent,
+    ToolInputDeltaEvent,
+    ToolInputStartEvent,
+    ToolOutputAvailableEvent,
+    ToolOutputErrorEvent,
+    UIMessageStreamEvent,
+)
+from .state import StateStore
+
+__all__ = [
+    # Core
+    "StreamContext",
+    "ToolCallHandle",
+    "StateStore",
+    # Base / union
+    "BaseEvent",
+    "UIMessageStreamEvent",
+    # Lifecycle
+    "StartEvent",
+    "StartStepEvent",
+    "FinishStepEvent",
+    "FinishEvent",
+    # Reasoning
+    "ReasoningStartEvent",
+    "ReasoningDeltaEvent",
+    "ReasoningEndEvent",
+    # Text
+    "TextStartEvent",
+    "TextDeltaEvent",
+    "TextEndEvent",
+    # Tools
+    "ToolInputStartEvent",
+    "ToolInputDeltaEvent",
+    "ToolInputAvailableEvent",
+    "ToolOutputAvailableEvent",
+    "ToolOutputErrorEvent",
+    # Sources
+    "SourceUrlEvent",
 ]
-
-
-@app.get("/")
-def root() -> dict:
-    return {"name": "ai-sdk-stream-python", "version": "0.1.0"}
-
-
-@app.get("/messages", response_model=list[Message])
-def get_messages() -> list[Message]:
-    return _dummy_messages

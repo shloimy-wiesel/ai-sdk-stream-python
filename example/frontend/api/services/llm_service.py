@@ -25,7 +25,7 @@ from ai_sdk_stream_python import StreamContext
 from . import db_service
 
 # ---------------------------------------------------------------------------
-# Client & configuration (read at import time so errors surface early)
+# Client & configuration
 # ---------------------------------------------------------------------------
 
 _client = AsyncOpenAI(
@@ -89,7 +89,6 @@ async def chat(messages: list[dict], *, ctx: StreamContext) -> None:
         *messages,
     ]
 
-    # Tool-calling loop — runs until the model stops calling tools.
     while True:
         stream = await _client.chat.completions.create(
             model=_MODEL,
@@ -98,7 +97,6 @@ async def chat(messages: list[dict], *, ctx: StreamContext) -> None:
             stream=True,
         )
 
-        # Accumulate the full streamed response for the message history.
         content_parts: list[str] = []
         tool_calls_buffer: dict[int, dict] = {}
         finish_reason: str | None = None
@@ -132,12 +130,9 @@ async def chat(messages: list[dict], *, ctx: StreamContext) -> None:
                         if tc.function.arguments:
                             tool_calls_buffer[idx]["arguments"] += tc.function.arguments
 
-        # No tool calls → final answer already streamed, we are done.
         if finish_reason != "tool_calls" or not tool_calls_buffer:
             break
 
-        # ── Execute tool calls ──────────────────────────────────────────
-        # Record the assistant's tool call request in the message history.
         assistant_msg: dict = {
             "role": "assistant",
             "content": "".join(content_parts) or None,
@@ -155,7 +150,6 @@ async def chat(messages: list[dict], *, ctx: StreamContext) -> None:
         }
         current_messages.append(assistant_msg)
 
-        # Move to a new step so each tool call gets its own UI card.
         await ctx.new_step()
 
         tool_results: list[dict] = []
@@ -164,7 +158,6 @@ async def chat(messages: list[dict], *, ctx: StreamContext) -> None:
                 try:
                     args = json.loads(tc_data["arguments"])
                     query = args.get("query", "")
-                    # db_service streams tool-input-* and source-url events.
                     docs = await db_service.search_documents(
                         query,
                         ctx=ctx,
@@ -191,5 +184,4 @@ async def chat(messages: list[dict], *, ctx: StreamContext) -> None:
 
         current_messages.extend(tool_results)
 
-        # Open a fresh step for the continuation text.
         await ctx.new_step()
