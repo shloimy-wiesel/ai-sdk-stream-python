@@ -15,10 +15,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
-from .routes.chat import router as chat_router
+from .routes.chat import router as chat_router  # noqa: E402
 
 app = FastAPI(
     title="ai-sdk-stream-python example",

@@ -172,11 +172,10 @@ async def chat(messages: list[dict], *, ctx: StreamContext) -> None:
                     )
                     result: dict = {
                         "results": [
-                            {"title": d["title"], "snippet": d["snippet"]}
-                            for d in docs
+                            {"title": d["title"], "snippet": d["snippet"]} for d in docs
                         ],
                     }
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     await ctx.fail_tool_call(tc_data["id"], str(exc))
                     result = {"error": str(exc)}
             else:

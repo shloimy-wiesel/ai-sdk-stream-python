@@ -25,6 +25,7 @@ from ai_sdk_stream_python import StreamContext
 from ..services import llm_service
 
 router = APIRouter()
+_background_tasks: set[asyncio.Task] = set()
 
 
 class ContentPart(BaseModel):
@@ -64,12 +65,14 @@ async def chat(request: ChatRequest) -> StreamingResponse:
         try:
             messages = [m.to_llm_message() for m in request.messages]
             await llm_service.chat(messages, ctx=ctx)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await ctx.write_text(f"\n\n_(Error: {exc})_")
         finally:
             await ctx.finish()
 
-    asyncio.create_task(_work())
+    _task = asyncio.create_task(_work())
+    _background_tasks.add(_task)
+    _task.add_done_callback(_background_tasks.discard)
 
     return StreamingResponse(
         ctx.stream(),
