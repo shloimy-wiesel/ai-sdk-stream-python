@@ -268,12 +268,15 @@ class StreamContext(Generic[_InfoT]):
 
     # ── High-level async write helpers ────────────────────────────────────────
 
-    async def write_text(self, delta: str) -> None:
+    async def write_text(self, delta: str, *, collect: bool = True) -> None:
         """
         Stream a text delta.
 
         Auto-emits ``start``, ``start-step``, and ``text-start`` if not yet
         open.  Also closes any open reasoning part first.
+
+        Pass ``collect=False`` to stream the delta to the frontend without
+        recording it in ``ctx.record``.
         """
         await self._ensure_step_open()
         await self._ensure_reasoning_closed()
@@ -281,16 +284,19 @@ class StreamContext(Generic[_InfoT]):
             self._text_id = str(uuid.uuid4())
             self._queue.put_nowait(TextStartEvent(id=self._text_id))
         self._queue.put_nowait(TextDeltaEvent(id=self._text_id, delta=delta))
-        if self._record is not None:
+        if self._record is not None and collect:
             self._record.text += delta
             self._record.answer_tokens += self._count(delta)
 
-    async def write_reasoning(self, delta: str) -> None:
+    async def write_reasoning(self, delta: str, *, collect: bool = True) -> None:
         """
         Stream a reasoning / chain-of-thought delta.
 
         Auto-emits ``start``, ``start-step``, and ``reasoning-start`` if not
         yet open.  Also closes any open text part first.
+
+        Pass ``collect=False`` to stream the delta to the frontend without
+        recording it in ``ctx.record``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
@@ -298,7 +304,7 @@ class StreamContext(Generic[_InfoT]):
             self._reasoning_id = str(uuid.uuid4())
             self._queue.put_nowait(ReasoningStartEvent(id=self._reasoning_id))
         self._queue.put_nowait(ReasoningDeltaEvent(id=self._reasoning_id, delta=delta))
-        if self._record is not None:
+        if self._record is not None and collect:
             self._record.reasoning += delta
             self._record.reasoning_tokens += self._count(delta)
 
@@ -318,6 +324,7 @@ class StreamContext(Generic[_InfoT]):
         tool_input: dict[str, Any],
         *,
         tool_call_id: str | None = None,
+        collect: bool = True,
     ) -> ToolCallHandle:
         """
         Emit ``tool-input-start`` + ``tool-input-available`` and return a
@@ -325,6 +332,11 @@ class StreamContext(Generic[_InfoT]):
 
         Call ``complete_tool_call`` (or ``fail_tool_call``) with the returned
         handle once the tool has executed.
+
+        Pass ``collect=False`` to stream the tool call to the frontend without
+        recording it in ``ctx.record``.  Subsequent ``complete_tool_call`` /
+        ``fail_tool_call`` calls will naturally skip the update since no
+        matching record exists.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
@@ -336,7 +348,7 @@ class StreamContext(Generic[_InfoT]):
                 toolCallId=tcid, toolName=tool_name, input=tool_input
             )
         )
-        if self._record is not None:
+        if self._record is not None and collect:
             self._record.tool_calls.append(
                 ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input=tool_input)
             )
@@ -347,6 +359,7 @@ class StreamContext(Generic[_InfoT]):
         tool_name: str,
         *,
         tool_call_id: str | None = None,
+        collect: bool = True,
     ) -> ToolCallHandle:
         """
         Emit ``tool-input-start`` and return a handle for streaming deltas.
@@ -354,13 +367,16 @@ class StreamContext(Generic[_InfoT]):
         Use this when tool arguments arrive incrementally (e.g. from an LLM
         stream).  Follow with :meth:`stream_tool_input_delta` calls and
         finish with :meth:`finish_tool_input`.
+
+        Pass ``collect=False`` to stream the tool call to the frontend without
+        recording it in ``ctx.record``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
         await self._ensure_reasoning_closed()
         tcid = tool_call_id or str(uuid.uuid4())
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
-        if self._record is not None:
+        if self._record is not None and collect:
             self._record.tool_calls.append(
                 ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input={})
             )
@@ -454,15 +470,20 @@ class StreamContext(Generic[_InfoT]):
             self._record.data_parts.append(DataPartRecord(name=name, data=data, id=id))
         self.write_event_to_stream(event)
 
-    async def write_file(self, url: str, media_type: str) -> None:
+    async def write_file(
+        self, url: str, media_type: str, *, collect: bool = True
+    ) -> None:
         """
         Emit a ``file`` event (image, PDF, or other file content).
 
         Auto-emits ``start`` and ``start-step`` if not yet open.
         On the frontend this produces a ``FileUIPart`` in ``message.parts``.
+
+        Pass ``collect=False`` to stream the file to the frontend without
+        recording it in ``ctx.record``.
         """
         await self._ensure_step_open()
-        if self._record is not None:
+        if self._record is not None and collect:
             self._record.files.append(FileRecord(url=url, media_type=media_type))
         self.write_event_to_stream(FileEvent(url=url, mediaType=media_type))
 
@@ -471,10 +492,17 @@ class StreamContext(Generic[_InfoT]):
         source_id: str,
         url: str,
         title: str | None = None,
+        *,
+        collect: bool = True,
     ) -> None:
-        """Emit a ``source-url`` event (document / citation reference)."""
+        """
+        Emit a ``source-url`` event (document / citation reference).
+
+        Pass ``collect=False`` to stream the source to the frontend without
+        recording it in ``ctx.record``.
+        """
         await self._ensure_started()
-        if self._record is not None:
+        if self._record is not None and collect:
             self._record.sources.append(
                 SourceRecord(source_id=source_id, url=url, title=title)
             )
