@@ -236,7 +236,9 @@ class StreamContext(Generic[_InfoT]):
         if not self._started:
             self._started = True
             self._queue.put_nowait(
-                StartEvent(messageId=self._message_id, messageMetadata=self._start_metadata)
+                StartEvent(
+                    messageId=self._message_id, messageMetadata=self._start_metadata
+                )
             )
 
     async def _ensure_step_open(self) -> None:
@@ -601,16 +603,28 @@ class StreamContext(Generic[_InfoT]):
         """
         Run *coro* as a background task with automatic error/finish handling.
 
-        If *coro* raises an unhandled exception the stream is terminated with
-        an ``error`` event so the client receives a proper error response
-        instead of hanging indefinitely.  If *coro* returns without calling
-        ``finish()`` or ``abort()``, ``finish()`` is called automatically.
+        This is the **recommended way** to wire up a streaming endpoint.
+        It provides three safety guarantees:
 
-        Example::
+        1. **Auto-finish** — ``finish()`` is called in a ``finally`` block so
+           the stream is always closed, even if *coro* returns early.
+        2. **Auto-error** — unhandled exceptions are caught and emitted as an
+           ``error`` event so the frontend receives a proper error response
+           instead of hanging indefinitely.
+        3. **Task GC prevention** — the background task is stored on the
+           context so Python's garbage collector cannot silently discard it.
 
-            ctx = StreamContext()
-            await ctx.run(lambda ctx: my_service.chat(request, ctx=ctx))
-            return StreamingResponse(ctx.stream(), ...)
+        Recommended FastAPI pattern::
+
+            @router.post("/chat")
+            async def chat(request: ChatRequest) -> StreamingResponse:
+                ctx = StreamContext()
+                await ctx.run(lambda ctx: my_service.chat(request, ctx=ctx))
+                return StreamingResponse(
+                    ctx.stream(),
+                    media_type="text/event-stream",
+                    headers=ctx.response_headers,
+                )
         """
 
         async def _safe() -> None:

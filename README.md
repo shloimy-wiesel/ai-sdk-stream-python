@@ -31,19 +31,17 @@ for chunk in llm.stream():
 yield "data: [DONE]\n\n"
 ```
 
-With `StreamContext`:
+With `StreamContext` and `ctx.run()`:
 
 ```python
 # After — typed, lifecycle-safe, state-sharing
 ctx = StreamContext()
-asyncio.create_task(my_work(ctx))
-return StreamingResponse(ctx.stream(), headers=ctx.response_headers)
+await ctx.run(lambda ctx: my_work(ctx))
+return StreamingResponse(ctx.stream(), media_type="text/event-stream", headers=ctx.response_headers)
 
 async def my_work(ctx):
-    try:
-        await ctx.write_text("Hello world!")   # auto-emits start/start-step/text-start
-    finally:
-        await ctx.finish()                      # auto-closes everything, emits [DONE]
+    await ctx.write_text("Hello world!")   # auto-emits start/start-step/text-start
+    # ctx.run() auto-calls finish() and handles errors — no try/finally needed
 ```
 
 ### Key features
@@ -74,7 +72,6 @@ pip install ai-sdk-stream-python
 ## Quick start (FastAPI)
 
 ```python
-import asyncio
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from ai_sdk_stream_python import StreamContext
@@ -85,20 +82,19 @@ app = FastAPI()
 async def chat():
     ctx = StreamContext()
 
-    async def _work():
-        try:
-            await ctx.write_text("Hello ")
-            await ctx.write_text("world!")
-        finally:
-            await ctx.finish()
+    async def _work(ctx: StreamContext) -> None:
+        await ctx.write_text("Hello ")
+        await ctx.write_text("world!")
 
-    asyncio.create_task(_work())
+    await ctx.run(_work)
     return StreamingResponse(
         ctx.stream(),
         media_type="text/event-stream",
         headers=ctx.response_headers,
     )
 ```
+
+`ctx.run()` wraps your work function with automatic error handling and stream finalization — no `try/finally` or manual `asyncio.create_task()` needed. See [`ctx.run()`](#ctxrun--safe-task-runner) below.
 
 ---
 
@@ -203,18 +199,17 @@ Pass `collect=True` to record all emitted content into a `StreamRecord` for data
 ```python
 ctx = StreamContext(collect=True)
 
-async def _work():
-    try:
-        await ctx.write_reasoning("Let me think…")
-        handle = await ctx.begin_tool_call("search", {"q": "hello"})
-        await ctx.complete_tool_call(handle.toolCallId, {"results": [...]})
-        await ctx.write_text("Here is the answer.")
-        await ctx.write_source("s1", "https://example.com", "My Doc")
-    finally:
-        await ctx.finish()
+async def _work(ctx: StreamContext) -> None:
+    await ctx.write_reasoning("Let me think…")
+    handle = await ctx.begin_tool_call("search", {"q": "hello"})
+    await ctx.complete_tool_call(handle.toolCallId, {"results": [...]})
+    await ctx.write_text("Here is the answer.")
+    await ctx.write_source("s1", "https://example.com", "My Doc")
 
-asyncio.create_task(_work())
-response = StreamingResponse(ctx.stream(), headers=ctx.response_headers)
+await ctx.run(_work)
+response = StreamingResponse(
+    ctx.stream(), media_type="text/event-stream", headers=ctx.response_headers
+)
 
 # After finish(), ctx.record is fully populated:
 record = ctx.record
@@ -230,6 +225,30 @@ await db.insert(record.to_dict())
 ```
 
 `ctx.record` is `None` when `collect=False` (the default). The record is built incrementally as events are emitted, and is fully available after `finish()` completes.
+
+### `ctx.run()` — safe task runner
+
+`ctx.run()` is the **recommended way** to launch your streaming work function. It provides three safety guarantees that eliminate an entire class of bugs:
+
+| Guarantee | What it does |
+|---|---|
+| **Auto-finish** | Calls `ctx.finish()` in a `finally` block — the stream is always closed, even if your function returns early |
+| **Auto-error** | Catches unhandled exceptions and emits `ctx.error()` — the frontend gets a proper error event instead of a silent hang |
+| **Task GC prevention** | Stores the background task on the context — Python's garbage collector cannot silently discard it |
+
+```python
+@router.post("/chat")
+async def chat(request: ChatRequest) -> StreamingResponse:
+    ctx = StreamContext()
+    await ctx.run(lambda ctx: my_service.chat(request, ctx=ctx))
+    return StreamingResponse(
+        ctx.stream(),
+        media_type="text/event-stream",
+        headers=ctx.response_headers,
+    )
+```
+
+Without `ctx.run()`, you'd need to manually manage `try/finally`, `asyncio.create_task()`, and a task reference set — all of which are easy to get wrong and produce hard-to-debug hung streams.
 
 ### Abort
 
@@ -260,23 +279,24 @@ The key pattern — `ctx` flows as a parameter to any module that needs to write
 async def chat(req: ChatRequest):
     ctx = StreamContext()
 
-    async def _work():
-        try:
-            # db_service writes reasoning + stores user data in ctx.store
-            user = await db_service.load_user(req.user_id, ctx=ctx)
+    async def _work(ctx: StreamContext) -> None:
+        # db_service writes reasoning + stores user data in ctx.store
+        user = await db_service.load_user(req.user_id, ctx=ctx)
 
-            # search_service emits tool call events via ctx
-            await ctx.new_step()
-            docs = await search_service.search(req.query, ctx=ctx)
+        # search_service emits tool call events via ctx
+        await ctx.new_step()
+        docs = await search_service.search(req.query, ctx=ctx)
 
-            # llm_service reads ctx.store + streams text via ctx
-            await ctx.new_step()
-            await llm_service.generate(req.query, docs, ctx=ctx)
-        finally:
-            await ctx.finish()
+        # llm_service reads ctx.store + streams text via ctx
+        await ctx.new_step()
+        await llm_service.generate(req.query, docs, ctx=ctx)
 
-    asyncio.create_task(_work())
-    return StreamingResponse(ctx.stream(), headers=ctx.response_headers)
+    await ctx.run(_work)  # auto-handles finish, errors, and task GC
+    return StreamingResponse(
+        ctx.stream(),
+        media_type="text/event-stream",
+        headers=ctx.response_headers,
+    )
 
 # services/db_service.py
 async def load_user(user_id: str, *, ctx: StreamContext) -> dict:
