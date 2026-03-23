@@ -214,6 +214,25 @@ class StreamContext(Generic[_InfoT]):
         """
         return self._record
 
+    def _should_collect(self, collect: bool | None) -> bool:
+        """Resolve per-call *collect* against context-level collection.
+
+        - ``None`` (default) → collect if context-level collection is enabled.
+        - ``True`` → require collection; raise if context has no record.
+        - ``False`` → skip collection even if context-level is enabled.
+        """
+        if collect is True and self._record is None:
+            raise RuntimeError(
+                "collect=True was passed but the StreamContext was created "
+                "with collect=False. Either enable collection on the context "
+                "(StreamContext(collect=True)) or omit the per-call collect "
+                "parameter."
+            )
+        if collect is False:
+            return False
+        # collect is None → follow context setting
+        return self._record is not None
+
     # ── Low-level sync emit ────────────────────────────────────────────────────
 
     def write_event_to_stream(self, ev: BaseEvent) -> None:
@@ -237,7 +256,9 @@ class StreamContext(Generic[_InfoT]):
         if not self._started:
             self._started = True
             self._queue.put_nowait(
-                StartEvent(messageId=self._message_id, messageMetadata=self._start_metadata)
+                StartEvent(
+                    messageId=self._message_id, messageMetadata=self._start_metadata
+                )
             )
 
     async def _ensure_step_open(self) -> None:
@@ -267,12 +288,16 @@ class StreamContext(Generic[_InfoT]):
 
     # ── High-level async write helpers ────────────────────────────────────────
 
-    async def write_text(self, delta: str) -> None:
+    async def write_text(self, delta: str, *, collect: bool | None = None) -> None:
         """
         Stream a text delta.
 
         Auto-emits ``start``, ``start-step``, and ``text-start`` if not yet
         open.  Also closes any open reasoning part first.
+
+        Pass ``collect=False`` to stream the delta to the frontend without
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_reasoning_closed()
@@ -280,16 +305,20 @@ class StreamContext(Generic[_InfoT]):
             self._text_id = str(uuid.uuid4())
             self._queue.put_nowait(TextStartEvent(id=self._text_id))
         self._queue.put_nowait(TextDeltaEvent(id=self._text_id, delta=delta))
-        if self._record is not None:
+        if self._should_collect(collect) and self._record is not None:
             self._record.text += delta
             self._record.answer_tokens += self._count(delta)
 
-    async def write_reasoning(self, delta: str) -> None:
+    async def write_reasoning(self, delta: str, *, collect: bool | None = None) -> None:
         """
         Stream a reasoning / chain-of-thought delta.
 
         Auto-emits ``start``, ``start-step``, and ``reasoning-start`` if not
         yet open.  Also closes any open text part first.
+
+        Pass ``collect=False`` to stream the delta to the frontend without
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
@@ -297,7 +326,7 @@ class StreamContext(Generic[_InfoT]):
             self._reasoning_id = str(uuid.uuid4())
             self._queue.put_nowait(ReasoningStartEvent(id=self._reasoning_id))
         self._queue.put_nowait(ReasoningDeltaEvent(id=self._reasoning_id, delta=delta))
-        if self._record is not None:
+        if self._should_collect(collect) and self._record is not None:
             self._record.reasoning += delta
             self._record.reasoning_tokens += self._count(delta)
 
@@ -317,6 +346,7 @@ class StreamContext(Generic[_InfoT]):
         tool_input: dict[str, Any],
         *,
         tool_call_id: str | None = None,
+        collect: bool | None = None,
     ) -> ToolCallHandle:
         """
         Emit ``tool-input-start`` + ``tool-input-available`` and return a
@@ -324,6 +354,12 @@ class StreamContext(Generic[_InfoT]):
 
         Call ``complete_tool_call`` (or ``fail_tool_call``) with the returned
         handle once the tool has executed.
+
+        Pass ``collect=False`` to stream the tool call to the frontend without
+        recording it in ``ctx.record``.  Subsequent ``complete_tool_call`` /
+        ``fail_tool_call`` calls will naturally skip the update since no
+        matching record exists.  Passing ``collect=True`` when the context
+        was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
@@ -335,7 +371,7 @@ class StreamContext(Generic[_InfoT]):
                 toolCallId=tcid, toolName=tool_name, input=tool_input
             )
         )
-        if self._record is not None:
+        if self._should_collect(collect) and self._record is not None:
             self._record.tool_calls.append(
                 ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input=tool_input)
             )
@@ -346,6 +382,7 @@ class StreamContext(Generic[_InfoT]):
         tool_name: str,
         *,
         tool_call_id: str | None = None,
+        collect: bool | None = None,
     ) -> ToolCallHandle:
         """
         Emit ``tool-input-start`` and return a handle for streaming deltas.
@@ -353,13 +390,17 @@ class StreamContext(Generic[_InfoT]):
         Use this when tool arguments arrive incrementally (e.g. from an LLM
         stream).  Follow with :meth:`stream_tool_input_delta` calls and
         finish with :meth:`finish_tool_input`.
+
+        Pass ``collect=False`` to stream the tool call to the frontend without
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
         await self._ensure_reasoning_closed()
         tcid = tool_call_id or str(uuid.uuid4())
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
-        if self._record is not None:
+        if self._should_collect(collect) and self._record is not None:
             self._record.tool_calls.append(
                 ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input={})
             )
@@ -423,10 +464,11 @@ class StreamContext(Generic[_InfoT]):
     async def write_data(
         self,
         name: str,
-        data: dict[str, Any],
+        data: Any,
         *,
         id: str | None = None,
         transient: bool = False,
+        collect: bool | None = None,
     ) -> None:
         """
         Emit a custom data part (``data-{name}`` type).
@@ -436,6 +478,10 @@ class StreamContext(Generic[_InfoT]):
         Non-transient parts are collected in ``ctx.record.data_parts``.
         Transient parts are only available through the ``onData`` callback
         on the frontend; they are not stored in message history.
+
+        Pass ``collect=False`` to stream the data part to the frontend without
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         if not name or not all(c.isalnum() or c in "-_" for c in name):
             raise ValueError(
@@ -449,19 +495,25 @@ class StreamContext(Generic[_InfoT]):
             id=id,
             transient=transient or None,
         )
-        if self._record is not None and not transient:
+        if self._should_collect(collect) and self._record is not None and not transient:
             self._record.data_parts.append(DataPartRecord(name=name, data=data, id=id))
         self.write_event_to_stream(event)
 
-    async def write_file(self, url: str, media_type: str) -> None:
+    async def write_file(
+        self, url: str, media_type: str, *, collect: bool | None = None
+    ) -> None:
         """
         Emit a ``file`` event (image, PDF, or other file content).
 
         Auto-emits ``start`` and ``start-step`` if not yet open.
         On the frontend this produces a ``FileUIPart`` in ``message.parts``.
+
+        Pass ``collect=False`` to stream the file to the frontend without
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
-        if self._record is not None:
+        if self._should_collect(collect) and self._record is not None:
             self._record.files.append(FileRecord(url=url, media_type=media_type))
         self.write_event_to_stream(FileEvent(url=url, mediaType=media_type))
 
@@ -470,10 +522,18 @@ class StreamContext(Generic[_InfoT]):
         source_id: str,
         url: str,
         title: str | None = None,
+        *,
+        collect: bool | None = None,
     ) -> None:
-        """Emit a ``source-url`` event (document / citation reference)."""
+        """
+        Emit a ``source-url`` event (document / citation reference).
+
+        Pass ``collect=False`` to stream the source to the frontend without
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
+        """
         await self._ensure_started()
-        if self._record is not None:
+        if self._should_collect(collect) and self._record is not None:
             self._record.sources.append(
                 SourceRecord(source_id=source_id, url=url, title=title)
             )
@@ -603,16 +663,28 @@ class StreamContext(Generic[_InfoT]):
         """
         Run *coro* as a background task with automatic error/finish handling.
 
-        If *coro* raises an unhandled exception the stream is terminated with
-        an ``error`` event so the client receives a proper error response
-        instead of hanging indefinitely.  If *coro* returns without calling
-        ``finish()`` or ``abort()``, ``finish()`` is called automatically.
+        This is the **recommended way** to wire up a streaming endpoint.
+        It provides three safety guarantees:
 
-        Example::
+        1. **Auto-finish** — ``finish()`` is called in a ``finally`` block so
+           the stream is always closed, even if *coro* returns early.
+        2. **Auto-error** — unhandled exceptions are caught and emitted as an
+           ``error`` event so the frontend receives a proper error response
+           instead of hanging indefinitely.
+        3. **Task GC prevention** — the background task is stored on the
+           context so Python's garbage collector cannot silently discard it.
 
-            ctx = StreamContext()
-            await ctx.run(lambda ctx: my_service.chat(request, ctx=ctx))
-            return StreamingResponse(ctx.stream(), ...)
+        Recommended FastAPI pattern::
+
+            @router.post("/chat")
+            async def chat(request: ChatRequest) -> StreamingResponse:
+                ctx = StreamContext()
+                await ctx.run(lambda ctx: my_service.chat(request, ctx=ctx))
+                return StreamingResponse(
+                    ctx.stream(),
+                    media_type="text/event-stream",
+                    headers=ctx.response_headers,
+                )
         """
 
         async def _safe() -> None:

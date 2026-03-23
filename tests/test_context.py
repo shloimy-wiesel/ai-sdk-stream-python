@@ -405,6 +405,42 @@ class TestWriteData:
         events = await run_and_collect(work)
         assert events[0]["type"] == "start"
 
+    async def test_write_data_accepts_string(self):
+        async def work(ctx):
+            await ctx.write_data("chat-title", "My Chat Title")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-chat-title")
+        assert data_ev["data"] == "My Chat Title"
+
+    async def test_write_data_accepts_none(self):
+        async def work(ctx):
+            await ctx.write_data("finish", None)
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-finish")
+        assert data_ev["data"] is None
+
+    async def test_write_data_accepts_list(self):
+        async def work(ctx):
+            await ctx.write_data("tags", ["python", "ai"])
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-tags")
+        assert data_ev["data"] == ["python", "ai"]
+
+    async def test_write_data_accepts_number(self):
+        async def work(ctx):
+            await ctx.write_data("score", 42)
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-score")
+        assert data_ev["data"] == 42
+
 
 # ---------------------------------------------------------------------------
 # Files
@@ -852,7 +888,10 @@ class TestStartMetadata:
 
         events = await run_and_collect(work)
         start_event = next(e for e in events if e["type"] == "start")
-        assert "messageMetadata" not in start_event or start_event.get("messageMetadata") is None
+        assert (
+            "messageMetadata" not in start_event
+            or start_event.get("messageMetadata") is None
+        )
 
     async def test_start_metadata_none_explicit(self):
         """Passing start_metadata=None behaves the same as omitting it."""

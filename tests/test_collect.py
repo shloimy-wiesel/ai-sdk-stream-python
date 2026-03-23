@@ -632,6 +632,237 @@ class TestTokenCounting:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Per-call collect=False opt-out
+# ---------------------------------------------------------------------------
+
+
+class TestPerCallCollectFalse:
+    async def test_text_not_recorded_when_collect_false(self):
+        async def work(ctx):
+            await ctx.write_text("recorded")
+            await ctx.write_text("not recorded", collect=False)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.text == "recorded"
+
+    async def test_text_collect_false_still_streamed(self):
+        """The delta is emitted to the SSE stream even when collect=False."""
+        events: list[str] = []
+
+        async def work(ctx):
+            await ctx.write_text("hidden", collect=False)
+            await ctx.finish()
+
+        ctx = StreamContext(collect=True)
+        asyncio.create_task(work(ctx))
+        async for chunk in ctx.stream():
+            events.append(chunk)
+
+        # Should contain text-delta with "hidden"
+        assert any("hidden" in e for e in events)
+        # But record should NOT contain it
+        assert ctx.record is not None
+        assert ctx.record.text == ""
+
+    async def test_text_collect_false_no_token_counting(self):
+        async def work(ctx):
+            await ctx.write_text("counted", collect=True)
+            await ctx.write_text("not counted", collect=False)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.answer_tokens == len("counted")
+
+    async def test_reasoning_not_recorded_when_collect_false(self):
+        async def work(ctx):
+            await ctx.write_reasoning("recorded")
+            await ctx.write_reasoning("not recorded", collect=False)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.reasoning == "recorded"
+
+    async def test_reasoning_collect_false_no_token_counting(self):
+        async def work(ctx):
+            await ctx.write_reasoning("counted")
+            await ctx.write_reasoning("not counted", collect=False)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.reasoning_tokens == len("counted")
+
+    async def test_source_not_recorded_when_collect_false(self):
+        async def work(ctx):
+            await ctx.write_source("s1", "https://a.com", collect=True)
+            await ctx.write_source("s2", "https://b.com", collect=False)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.sources) == 1
+        assert ctx.record.sources[0].source_id == "s1"
+
+    async def test_file_not_recorded_when_collect_false(self):
+        async def work(ctx):
+            await ctx.write_file("https://a.com/img.png", "image/png")
+            await ctx.write_file("https://b.com/tmp.png", "image/png", collect=False)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.files) == 1
+        assert ctx.record.files[0].url == "https://a.com/img.png"
+
+    async def test_begin_tool_call_not_recorded_when_collect_false(self):
+        async def work(ctx):
+            h1 = await ctx.begin_tool_call("visible", {"q": "a"})
+            await ctx.complete_tool_call(h1.toolCallId, "result-a")
+            h2 = await ctx.begin_tool_call("hidden", {"q": "b"}, collect=False)
+            await ctx.complete_tool_call(h2.toolCallId, "result-b")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.tool_calls) == 1
+        assert ctx.record.tool_calls[0].tool_name == "visible"
+        assert ctx.record.tool_calls[0].output == "result-a"
+
+    async def test_start_tool_input_not_recorded_when_collect_false(self):
+        async def work(ctx):
+            h = await ctx.start_tool_input("hidden", collect=False)
+            await ctx.stream_tool_input_delta(h.toolCallId, '{"q":"x"}')
+            await ctx.finish_tool_input(h.toolCallId, "hidden", {"q": "x"})
+            await ctx.complete_tool_call(h.toolCallId, "out")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert len(ctx.record.tool_calls) == 0
+
+    async def test_collect_false_noop_when_collection_disabled(self):
+        """collect=False doesn't crash when ctx.record is None."""
+
+        async def work(ctx):
+            await ctx.write_text("hi", collect=False)
+            await ctx.write_reasoning("think", collect=False)
+            await ctx.write_source("s1", "https://a.com", collect=False)
+            await ctx.write_file("https://a.com/f.png", "image/png", collect=False)
+            h = await ctx.begin_tool_call("t", {"x": 1}, collect=False)
+            await ctx.complete_tool_call(h.toolCallId, "out")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=False)
+        assert ctx.record is None
+
+
+# ---------------------------------------------------------------------------
+# Per-call collect=True on non-collecting context raises RuntimeError
+# ---------------------------------------------------------------------------
+
+
+class TestPerCallCollectTrueOnNonCollecting:
+    async def test_write_text_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_text("hi", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_write_reasoning_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_reasoning("think", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_write_source_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_source("s1", "https://a.com", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_write_file_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_file("https://a.com/f.png", "image/png", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_begin_tool_call_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.begin_tool_call("t", {"x": 1}, collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_start_tool_input_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.start_tool_input("t", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_collect_true_ok_when_context_collecting(self):
+        """Explicit collect=True is fine when context has collect=True."""
+
+        async def work(ctx):
+            await ctx.write_text("hi", collect=True)
+            await ctx.write_reasoning("think", collect=True)
+            await ctx.write_source("s1", "https://a.com", collect=True)
+            await ctx.write_file("https://a.com/f.png", "image/png", collect=True)
+            h = await ctx.begin_tool_call("t", {"x": 1}, collect=True)
+            await ctx.complete_tool_call(h.toolCallId, "out")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.text == "hi"
+        assert ctx.record.reasoning == "think"
+        assert len(ctx.record.sources) == 1
+        assert len(ctx.record.files) == 1
+        assert len(ctx.record.tool_calls) == 1
+
+    async def test_default_none_no_error_when_not_collecting(self):
+        """Default collect=None silently skips when context has no record."""
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.write_reasoning("think")
+            await ctx.write_source("s1", "https://a.com")
+            await ctx.write_file("https://a.com/f.png", "image/png")
+            h = await ctx.begin_tool_call("t", {"x": 1})
+            await ctx.complete_tool_call(h.toolCallId, "out")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=False)
+        assert ctx.record is None
+
+
 class TestCollectAbort:
     async def test_abort_does_not_set_finish_reason(self):
         async def work(ctx):
