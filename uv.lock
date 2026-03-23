@@ -4,7 +4,7 @@ requires-python = ">=3.10, <3.13"
 
 [[package]]
 name = "ai-sdk-stream-python"
-version = "0.2.0a1"
+version = "0.2.0a3"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },

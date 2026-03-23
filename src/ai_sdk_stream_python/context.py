@@ -53,8 +53,10 @@ Usage example (FastAPI)::
 from __future__ import annotations
 
 import asyncio
+import inspect
+import logging
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, TypeVar
 
@@ -92,7 +94,13 @@ from .events import (
 )
 from .state import StateStore
 
+logger = logging.getLogger(__name__)
+
 _InfoT = TypeVar("_InfoT", bound=BaseModel)
+
+#: Type alias for the ``on_finish`` callback.
+#: May be a plain synchronous callable or an async callable.
+OnFinishCallback = Callable[["StreamRecord"], Any]
 
 
 @dataclass
@@ -135,11 +143,13 @@ class StreamContext(Generic[_InfoT]):
         *,
         collect: bool = False,
         custom_information: _InfoT | None = None,
+        on_finish: OnFinishCallback | None = None,
     ) -> None:
         self._message_id: str = message_id or str(uuid.uuid4())
         self._queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
         self.store: StateStore = StateStore()
         self._info: _InfoT | None = custom_information
+        self._on_finish: OnFinishCallback | None = on_finish
 
         # Lifecycle state
         self._started: bool = False
@@ -148,9 +158,11 @@ class StreamContext(Generic[_InfoT]):
         self._reasoning_id: str | None = None
         self._finished: bool = False
 
-        # Collection
+        # Collection — auto-enabled when on_finish is provided
         self._record: StreamRecord | None = (
-            StreamRecord(message_id=self._message_id) if collect else None
+            StreamRecord(message_id=self._message_id)
+            if (collect or on_finish is not None)
+            else None
         )
 
     # ── Properties ────────────────────────────────────────────────────────────
@@ -472,14 +484,30 @@ class StreamContext(Generic[_InfoT]):
         self,
         finish_reason: str = "stop",
         message_metadata: dict[str, Any] | None = None,
+        *,
+        on_finish: OnFinishCallback | None = None,
     ) -> None:
         """
         Close all open parts/steps, emit ``finish``, and terminate the stream.
+
+        If an ``on_finish`` callback is provided (either here or at construction
+        time), it is invoked with the fully populated :class:`~collect.StreamRecord`
+        after the finish event is queued.  Both sync and async callables are
+        accepted.  Any exception raised by the callback is logged and swallowed
+        so that stream termination is never blocked.
+
+        The ``on_finish`` parameter passed here takes priority over the one
+        supplied at construction time.  Providing a callback here also
+        auto-enables collection for this call (the record will be non-``None``).
 
         Safe to call multiple times; subsequent calls are no-ops.
         """
         if self._finished:
             return
+        # If a per-call on_finish is given, ensure we have a record to pass it.
+        effective_callback = on_finish if on_finish is not None else self._on_finish
+        if effective_callback is not None and self._record is None:
+            self._record = StreamRecord(message_id=self._message_id)
         await self._ensure_started()
         await self._ensure_step_closed()
         self._finished = True
@@ -488,6 +516,19 @@ class StreamContext(Generic[_InfoT]):
         self._queue.put_nowait(
             FinishEvent(finishReason=finish_reason, messageMetadata=message_metadata)
         )
+        # Invoke the callback before the sentinel so the record is fully
+        # populated.  Exceptions are caught and logged to avoid blocking
+        # stream termination.
+        if effective_callback is not None and self._record is not None:
+            try:
+                if inspect.iscoroutinefunction(effective_callback):
+                    await effective_callback(self._record)
+                else:
+                    result = effective_callback(self._record)
+                    if inspect.isawaitable(result):
+                        await result
+            except Exception:
+                logger.exception("on_finish callback raised an exception")
         self._queue.put_nowait(None)  # sentinel → stream() yields [DONE]
 
     async def abort(self, reason: str | None = None) -> None:
@@ -544,4 +585,4 @@ class StreamContext(Generic[_InfoT]):
             yield ev.encode()
 
 
-__all__ = ["StreamContext", "ToolCallHandle"]
+__all__ = ["StreamContext", "ToolCallHandle", "OnFinishCallback"]

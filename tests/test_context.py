@@ -674,6 +674,158 @@ class TestCustomInformation:
 
 
 # ---------------------------------------------------------------------------
+# on_finish callback
+# ---------------------------------------------------------------------------
+
+
+class TestOnFinish:
+    async def test_sync_callback_called_with_record(self):
+        """A sync on_finish callback receives the fully populated StreamRecord."""
+        received = []
+
+        async def work(ctx):
+            await ctx.write_text("hello")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=lambda rec: received.append(rec))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(received) == 1
+        assert received[0].text == "hello"
+        assert received[0].finish_reason == "stop"
+
+    async def test_async_callback_called_with_record(self):
+        """An async on_finish callback is awaited and receives the record."""
+        received = []
+
+        async def _on_finish(rec):
+            received.append(rec)
+
+        async def work(ctx):
+            await ctx.write_text("async cb")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=_on_finish)
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(received) == 1
+        assert received[0].text == "async cb"
+
+    async def test_on_finish_auto_enables_collect(self):
+        """Passing on_finish without collect=True still populates ctx.record."""
+        record_holder = []
+
+        async def work(ctx):
+            await ctx.write_text("captured")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=lambda rec: record_holder.append(rec))
+        assert ctx.record is not None, "record should be created when on_finish is set"
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert ctx.record is not None
+        assert ctx.record.text == "captured"
+
+    async def test_callback_exception_does_not_prevent_stream_termination(self):
+        """If the callback raises, the stream still terminates normally."""
+
+        def bad_callback(rec):
+            raise ValueError("db write failed")
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=bad_callback)
+        asyncio.create_task(work(ctx))
+        # collect_stream should complete without raising
+        events = await collect_stream(ctx)
+        assert any(e["type"] == "finish" for e in events)
+
+    async def test_async_callback_exception_swallowed(self):
+        """Async callback exception is also swallowed."""
+
+        async def bad_async_callback(rec):
+            raise RuntimeError("async failure")
+
+        async def work(ctx):
+            await ctx.write_text("test")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=bad_async_callback)
+        asyncio.create_task(work(ctx))
+        events = await collect_stream(ctx)
+        assert any(e["type"] == "finish" for e in events)
+
+    async def test_on_finish_parameter_on_finish_method(self):
+        """on_finish passed directly to finish() is called after the stream.
+
+        When on_finish is provided only at finish()-call time (not construction),
+        collection wasn't enabled during the stream, so the record holds only
+        the finish_reason — text already emitted won't be captured.
+        """
+        received = []
+
+        async def work(ctx):
+            await ctx.write_text("per-call")
+            await ctx.finish(on_finish=lambda rec: received.append(rec))
+
+        ctx = StreamContext()
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(received) == 1
+        # Record was created lazily inside finish(); text was not collected.
+        assert received[0].finish_reason == "stop"
+        assert received[0].text == ""
+
+    async def test_finish_on_finish_takes_priority_over_constructor(self):
+        """on_finish on finish() overrides the constructor-level callback."""
+        constructor_calls = []
+        finish_calls = []
+
+        async def work(ctx):
+            await ctx.finish(on_finish=lambda rec: finish_calls.append(rec))
+
+        ctx = StreamContext(on_finish=lambda rec: constructor_calls.append(rec))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(finish_calls) == 1
+        assert len(constructor_calls) == 0
+
+    async def test_on_finish_called_only_once_on_repeated_finish(self):
+        """Calling finish() twice must not invoke the callback twice."""
+        calls = []
+
+        async def work(ctx):
+            await ctx.finish()
+            await ctx.finish()  # no-op
+
+        ctx = StreamContext(on_finish=lambda rec: calls.append(1))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(calls) == 1
+
+    async def test_on_finish_record_contains_finish_reason(self):
+        """Record passed to callback has the finish_reason populated."""
+        received = []
+
+        async def work(ctx):
+            await ctx.finish(finish_reason="length")
+
+        ctx = StreamContext(on_finish=lambda rec: received.append(rec))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert received[0].finish_reason == "length"
+
+
+# ---------------------------------------------------------------------------
 # pytest-asyncio config
 # ---------------------------------------------------------------------------
 

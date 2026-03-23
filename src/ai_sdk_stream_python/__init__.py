@@ -47,7 +47,7 @@ from .collect import FileRecord as FileRecord
 from .collect import SourceRecord as SourceRecord
 from .collect import StreamRecord as StreamRecord
 from .collect import ToolCallRecord as ToolCallRecord
-from .context import StreamContext, ToolCallHandle
+from .context import OnFinishCallback, StreamContext, ToolCallHandle
 from .events import (
     AbortEvent,
     BaseEvent,
@@ -78,6 +78,7 @@ __all__ = [
     # Core
     "StreamContext",
     "ToolCallHandle",
+    "OnFinishCallback",
     "StateStore",
     # Collection
     "StreamRecord",
