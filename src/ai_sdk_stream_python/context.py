@@ -467,6 +467,7 @@ class StreamContext(Generic[_InfoT]):
         *,
         id: str | None = None,
         transient: bool = False,
+        collect: bool | None = None,
     ) -> None:
         """
         Emit a custom data part (``data-{name}`` type).
@@ -476,6 +477,10 @@ class StreamContext(Generic[_InfoT]):
         Non-transient parts are collected in ``ctx.record.data_parts``.
         Transient parts are only available through the ``onData`` callback
         on the frontend; they are not stored in message history.
+
+        Pass ``collect=False`` to stream the data part to the frontend without
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         if not name or not all(c.isalnum() or c in "-_" for c in name):
             raise ValueError(
@@ -489,7 +494,7 @@ class StreamContext(Generic[_InfoT]):
             id=id,
             transient=transient or None,
         )
-        if self._record is not None and not transient:
+        if self._should_collect(collect) and self._record is not None and not transient:
             self._record.data_parts.append(DataPartRecord(name=name, data=data, id=id))
         self.write_event_to_stream(event)
 
