@@ -498,6 +498,135 @@ class TestCollectMessageId:
 
 
 # ---------------------------------------------------------------------------
+# Token counting
+# ---------------------------------------------------------------------------
+
+
+class TestTokenCounting:
+    async def test_answer_tokens_default_len(self):
+        async def work(ctx):
+            await ctx.write_text("hello")  # len=5
+            await ctx.write_text(" world")  # len=6
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.answer_tokens == 11
+
+    async def test_reasoning_tokens_default_len(self):
+        async def work(ctx):
+            await ctx.write_reasoning("think")  # len=5
+            await ctx.write_reasoning("!")  # len=1
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.reasoning_tokens == 6
+
+    async def test_custom_count_func(self):
+        def word_count(s: str) -> int:
+            return len(s.split())
+
+        async def work(ctx):
+            await ctx.write_text("one two three")  # 3 words
+            await ctx.write_reasoning("four five")  # 2 words
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True, count_func=word_count)
+        assert ctx.record is not None
+        assert ctx.record.answer_tokens == 3
+        assert ctx.record.reasoning_tokens == 2
+
+    async def test_total_output_tokens(self):
+        async def work(ctx):
+            await ctx.write_reasoning("abc")  # 3
+            await ctx.write_text("de")  # 2
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.total_output_tokens == 5
+
+    async def test_total_tokens_none_without_prompt(self):
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.total_tokens is None
+
+    async def test_total_tokens_with_prompt(self):
+        async def work(ctx):
+            await ctx.write_text("hi")  # len=2
+            await ctx.set_usage(prompt_tokens=10)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.prompt_tokens == 10
+        assert ctx.record.total_tokens == 12
+
+    async def test_set_usage_overrides_auto_counted(self):
+        async def work(ctx):
+            await ctx.write_text("hello world")  # auto: 11 chars
+            await ctx.set_usage(answer_tokens=3)  # override with exact
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.answer_tokens == 3
+
+    async def test_set_usage_partial_update(self):
+        async def work(ctx):
+            await ctx.write_reasoning("think")  # auto: 5
+            await ctx.write_text("answer")  # auto: 6
+            await ctx.set_usage(prompt_tokens=20, answer_tokens=2)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.prompt_tokens == 20
+        assert ctx.record.answer_tokens == 2
+        assert ctx.record.reasoning_tokens == 5  # unchanged
+
+    async def test_set_usage_noop_when_not_collecting(self):
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.set_usage(prompt_tokens=10)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=False)
+        assert ctx.record is None  # no error raised
+
+    async def test_tokens_in_to_dict(self):
+        async def work(ctx):
+            await ctx.write_reasoning("ab")  # 2
+            await ctx.write_text("cde")  # 3
+            await ctx.set_usage(prompt_tokens=7)
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        d = ctx.record.to_dict()
+        assert d["reasoning_tokens"] == 2
+        assert d["answer_tokens"] == 3
+        assert d["prompt_tokens"] == 7
+        assert d["total_output_tokens"] == 5
+        assert d["total_tokens"] == 12
+
+    async def test_no_counting_when_not_collecting(self):
+        """count_func is ignored when collect=False — no errors."""
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=False, count_func=lambda s: len(s))
+        assert ctx.record is None
+
+
+# ---------------------------------------------------------------------------
 # Abort
 # ---------------------------------------------------------------------------
 

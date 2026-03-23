@@ -76,6 +76,12 @@ class StreamRecord:
     step_count:
         Number of steps opened during the stream (including the first
         implicit step).
+    reasoning_tokens:
+        Auto-counted tokens from ``write_reasoning`` deltas.
+    answer_tokens:
+        Auto-counted tokens from ``write_text`` deltas.
+    prompt_tokens:
+        Prompt/input tokens — only available if set via ``ctx.set_usage()``.
     """
 
     message_id: str
@@ -87,6 +93,19 @@ class StreamRecord:
     data_parts: list[DataPartRecord] = field(default_factory=list)
     finish_reason: str | None = None
     step_count: int = 0
+    reasoning_tokens: int = 0
+    answer_tokens: int = 0
+    prompt_tokens: int | None = None
+
+    @property
+    def total_output_tokens(self) -> int:
+        return self.reasoning_tokens + self.answer_tokens
+
+    @property
+    def total_tokens(self) -> int | None:
+        if self.prompt_tokens is None:
+            return None
+        return self.prompt_tokens + self.total_output_tokens
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for DB persistence."""
@@ -129,6 +148,11 @@ class StreamRecord:
             ],
             "finish_reason": self.finish_reason,
             "step_count": self.step_count,
+            "reasoning_tokens": self.reasoning_tokens,
+            "answer_tokens": self.answer_tokens,
+            "prompt_tokens": self.prompt_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_tokens": self.total_tokens,
         }
 
 

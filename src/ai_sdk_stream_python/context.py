@@ -142,6 +142,7 @@ class StreamContext(Generic[_InfoT]):
         message_id: str | None = None,
         *,
         collect: bool = False,
+        count_func: Callable[[str], int] | None = None,
         custom_information: _InfoT | None = None,
         on_finish: OnFinishCallback | None = None,
         start_metadata: dict[str, Any] | None = None,
@@ -165,6 +166,9 @@ class StreamContext(Generic[_InfoT]):
             StreamRecord(message_id=self._message_id)
             if (collect or on_finish is not None)
             else None
+        )
+        self._count: Callable[[str], int] = (
+            count_func if count_func is not None else len
         )
 
     # ── Properties ────────────────────────────────────────────────────────────
@@ -277,6 +281,7 @@ class StreamContext(Generic[_InfoT]):
         self._queue.put_nowait(TextDeltaEvent(id=self._text_id, delta=delta))
         if self._record is not None:
             self._record.text += delta
+            self._record.answer_tokens += self._count(delta)
 
     async def write_reasoning(self, delta: str) -> None:
         """
@@ -293,6 +298,7 @@ class StreamContext(Generic[_InfoT]):
         self._queue.put_nowait(ReasoningDeltaEvent(id=self._reasoning_id, delta=delta))
         if self._record is not None:
             self._record.reasoning += delta
+            self._record.reasoning_tokens += self._count(delta)
 
     async def new_step(self) -> None:
         """
@@ -473,6 +479,31 @@ class StreamContext(Generic[_InfoT]):
         self.write_event_to_stream(
             SourceUrlEvent(sourceId=source_id, url=url, title=title)
         )
+
+    async def set_usage(
+        self,
+        *,
+        prompt_tokens: int | None = None,
+        reasoning_tokens: int | None = None,
+        answer_tokens: int | None = None,
+    ) -> None:
+        """
+        Override auto-counted token values with exact LLM-reported counts.
+
+        Use this to replace character-count approximations with exact values
+        when the LLM provides them (e.g. OpenAI's ``stream_options={"include_usage": True}``
+        in the final chunk, or Anthropic's ``usage`` block).
+
+        Only fields that are explicitly passed are updated; omitted fields
+        retain their current values.  Has no effect when ``collect=False``.
+        """
+        if self._record is not None:
+            if prompt_tokens is not None:
+                self._record.prompt_tokens = prompt_tokens
+            if reasoning_tokens is not None:
+                self._record.reasoning_tokens = reasoning_tokens
+            if answer_tokens is not None:
+                self._record.answer_tokens = answer_tokens
 
     async def write(self, event: BaseEvent) -> None:
         """
