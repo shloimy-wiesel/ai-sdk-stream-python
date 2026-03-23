@@ -1,6 +1,37 @@
 # CHANGELOG
 
 
+## v0.2.0-a.6 (2026-03-23)
+
+### Features
+
+- Add Pydantic request body types for AI SDK v6 message format
+  ([#39](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/39),
+  [`12d3e93`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/12d3e9358b531ae662a4ff0be905e9de166bcc17))
+
+* feat: add Pydantic request body types for AI SDK v6 message format
+
+Closes #32.
+
+Adds `types.py` with typed Pydantic models for deserialising incoming `useChat` request bodies:
+  `ChatRequest`, `UIMessage`, and all part types (`TextUIPart`, `ReasoningUIPart`, `FileUIPart`,
+  `SourceUrlUIPart`, `SourceDocumentUIPart`, `StepStartUIPart`, `DataUIPart`, `ToolUIPart`).
+
+`MessagePart` is a discriminated union that handles both literal type fields and dynamic prefixes
+  (`tool-*`, `data-*`, `dynamic-tool`). Tool states use the v6 names (`input-streaming`,
+  `input-available`, `output-available`, `output-error`). `ChatRequest` uses `extra="allow"` so
+  app-specific fields pass through transparently.
+
+* fix: address code review issues in request types
+
+- Add extra="allow" to all simple part models for forward-compat - Add model_validator to ToolUIPart
+  requiring toolName on dynamic-tool parts - Add transient field to DataUIPart matching outbound
+  DataEvent - Drop Literal|str no-op on trigger; use plain str with doc comment - Raise ValueError
+  for unknown part types instead of silently falling back to TextUIPart - Fix
+  test_uimessage_extra_fields_allowed to assert extra field is accessible - Reorganize test_types.py
+  into class Test* blocks matching project convention
+
+
 ## v0.2.0-a.5 (2026-03-23)
 
 ### Bug Fixes
