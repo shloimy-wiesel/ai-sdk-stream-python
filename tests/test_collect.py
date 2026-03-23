@@ -666,11 +666,11 @@ class TestCollectTiming:
         assert ctx.record is not None
         assert before <= ctx.record.created_at <= after
 
-    async def test_finished_at_none_before_finish(self):
+    async def test_finished_at_none_initially(self):
         ctx = StreamContext(collect=True)
         assert ctx.record is not None
         assert ctx.record.finished_at is None
-        # drain so queue is clean
+        # clean up the queue
         await ctx.finish()
         async for _ in ctx.stream():
             pass

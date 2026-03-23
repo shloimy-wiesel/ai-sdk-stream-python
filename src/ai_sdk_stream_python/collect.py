@@ -83,6 +83,16 @@ class StreamRecord:
         Auto-counted tokens from ``write_text`` deltas.
     prompt_tokens:
         Prompt/input tokens — only available if set via ``ctx.set_usage()``.
+    created_at:
+        UTC datetime set automatically when the ``StreamRecord`` is created
+        (i.e. when ``StreamContext(collect=True)`` is instantiated).
+    finished_at:
+        UTC datetime set automatically when ``ctx.finish()`` completes.
+        ``None`` if the stream was terminated via ``abort()`` or has not
+        yet finished.
+    duration_ms:
+        Wall-clock duration in milliseconds from ``created_at`` to
+        ``finished_at``.  ``None`` until the stream is finished.
     """
 
     message_id: str
@@ -163,7 +173,7 @@ class StreamRecord:
             "prompt_tokens": self.prompt_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_tokens": self.total_tokens,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": self.created_at.isoformat(),
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
             "duration_ms": self.duration_ms,
         }
