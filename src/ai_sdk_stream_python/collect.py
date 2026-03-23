@@ -9,6 +9,7 @@ Useful for persisting the conversation turn to a database or audit log.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -82,6 +83,16 @@ class StreamRecord:
         Auto-counted tokens from ``write_text`` deltas.
     prompt_tokens:
         Prompt/input tokens — only available if set via ``ctx.set_usage()``.
+    created_at:
+        UTC datetime set automatically when the ``StreamRecord`` is created
+        (i.e. when ``StreamContext(collect=True)`` is instantiated).
+    finished_at:
+        UTC datetime set automatically when ``ctx.finish()`` completes.
+        ``None`` if the stream was terminated via ``abort()`` or has not
+        yet finished.
+    duration_ms:
+        Wall-clock duration in milliseconds from ``created_at`` to
+        ``finished_at``.  ``None`` until the stream is finished.
     """
 
     message_id: str
@@ -96,6 +107,8 @@ class StreamRecord:
     reasoning_tokens: int = 0
     answer_tokens: int = 0
     prompt_tokens: int | None = None
+    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    finished_at: datetime | None = None
 
     @property
     def total_output_tokens(self) -> int:
@@ -106,6 +119,13 @@ class StreamRecord:
         if self.prompt_tokens is None:
             return None
         return self.prompt_tokens + self.total_output_tokens
+
+    @property
+    def duration_ms(self) -> float | None:
+        """Wall-clock duration in milliseconds, or None if not yet finished."""
+        if self.finished_at is not None:
+            return (self.finished_at - self.created_at).total_seconds() * 1000
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict suitable for DB persistence."""
@@ -153,6 +173,9 @@ class StreamRecord:
             "prompt_tokens": self.prompt_tokens,
             "total_output_tokens": self.total_output_tokens,
             "total_tokens": self.total_tokens,
+            "created_at": self.created_at.isoformat(),
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+            "duration_ms": self.duration_ms,
         }
 
 

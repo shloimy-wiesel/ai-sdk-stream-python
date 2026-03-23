@@ -58,6 +58,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel
@@ -548,6 +549,7 @@ class StreamContext(Generic[_InfoT]):
         self._finished = True
         if self._record is not None:
             self._record.finish_reason = finish_reason
+            self._record.finished_at = datetime.now(timezone.utc)
         self._queue.put_nowait(
             FinishEvent(finishReason=finish_reason, messageMetadata=message_metadata)
         )
