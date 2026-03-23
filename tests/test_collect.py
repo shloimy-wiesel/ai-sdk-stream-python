@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -650,3 +651,97 @@ class TestCollectAbort:
         ctx = await run_collecting(work, collect=True)
         assert ctx.record is not None
         assert ctx.record.text == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Timing fields
+# ---------------------------------------------------------------------------
+
+
+class TestCollectTiming:
+    async def test_created_at_is_set_on_creation(self):
+        before = datetime.now(timezone.utc)
+        ctx = StreamContext(collect=True)
+        after = datetime.now(timezone.utc)
+        assert ctx.record is not None
+        assert before <= ctx.record.created_at <= after
+
+    async def test_finished_at_none_before_finish(self):
+        ctx = StreamContext(collect=True)
+        assert ctx.record is not None
+        assert ctx.record.finished_at is None
+        # drain so queue is clean
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_finished_at_set_after_finish(self):
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        before = datetime.now(timezone.utc)
+        ctx = await run_collecting(work, collect=True)
+        after = datetime.now(timezone.utc)
+        assert ctx.record is not None
+        assert ctx.record.finished_at is not None
+        assert before <= ctx.record.finished_at <= after
+
+    async def test_duration_ms_none_before_finish(self):
+        ctx = StreamContext(collect=True)
+        assert ctx.record is not None
+        assert ctx.record.duration_ms is None
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_duration_ms_non_negative_after_finish(self):
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.duration_ms is not None
+        assert ctx.record.duration_ms >= 0
+
+    async def test_abort_does_not_set_finished_at(self):
+        async def work(ctx):
+            await ctx.write_text("partial")
+            await ctx.abort()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.finished_at is None
+        assert ctx.record.duration_ms is None
+
+    async def test_to_dict_includes_timing_fields(self):
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        d = ctx.record.to_dict()
+        assert "created_at" in d
+        assert "finished_at" in d
+        assert "duration_ms" in d
+        assert d["created_at"] is not None
+        assert d["finished_at"] is not None
+        assert d["duration_ms"] is not None
+        assert d["duration_ms"] >= 0
+        # values should be ISO 8601 strings
+        datetime.fromisoformat(d["created_at"])
+        datetime.fromisoformat(d["finished_at"])
+
+    async def test_to_dict_finished_at_none_before_finish(self):
+        record_snapshot: dict = {}
+
+        async def work(ctx):
+            assert ctx.record is not None
+            record_snapshot.update(ctx.record.to_dict())
+            await ctx.finish()
+
+        await run_collecting(work, collect=True)
+        assert record_snapshot["finished_at"] is None
+        assert record_snapshot["duration_ms"] is None
