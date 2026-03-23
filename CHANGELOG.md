@@ -1,6 +1,28 @@
 # CHANGELOG
 
 
+## v0.2.0-a.4 (2026-03-23)
+
+### Features
+
+- Add `on_finish` callback for post-stream persistence
+  ([#24](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/24),
+  [`fcbb2fd`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/fcbb2fd9ceca1a0cd1083f4001bf918c8ef174f1))
+
+* Initial plan
+
+* feat: add on_finish callback for post-stream persistence
+
+Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
+
+Agent-Logs-Url:
+  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/5f2f939a-91ee-46f4-9d8e-5abc6ef8a02e
+
+---------
+
+Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+
+
 ## v0.2.0-a.3 (2026-03-22)
 
 ### Bug Fixes
