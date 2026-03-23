@@ -463,7 +463,7 @@ class StreamContext(Generic[_InfoT]):
     async def write_data(
         self,
         name: str,
-        data: dict[str, Any],
+        data: Any,
         *,
         id: str | None = None,
         transient: bool = False,

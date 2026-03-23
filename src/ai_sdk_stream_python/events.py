@@ -11,6 +11,7 @@ Response header: ``x-vercel-ai-ui-message-stream: v1``.
 
 from __future__ import annotations
 
+import json as _json
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -157,9 +158,18 @@ class DataEvent(BaseEvent):
     """
 
     type: str  # "data-{name}", validated by ctx.write_data()
-    data: dict[str, Any]
+    data: Any
     id: str | None = None
     transient: bool | None = None
+
+    def encode(self) -> str:
+        """Serialise as SSE, always including ``data`` even when ``None``."""
+        payload = self.model_dump(exclude_none=True)
+        # model_dump(exclude_none=True) drops data when it is None;
+        # the wire protocol requires the field to always be present.
+        if "data" not in payload:
+            payload["data"] = None
+        return "data: " + _json.dumps(payload) + "\n\n"
 
 
 # ── Abort ──────────────────────────────────────────────────────────────────────

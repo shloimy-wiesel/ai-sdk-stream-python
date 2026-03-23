@@ -45,7 +45,7 @@ class DataPartRecord:
     """A non-transient custom data part emitted via ``write_data``."""
 
     name: str
-    data: dict[str, Any]
+    data: Any
     id: str | None = None
 
 
