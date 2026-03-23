@@ -73,6 +73,19 @@ from .events import (
     UIMessageStreamEvent,
 )
 from .state import StateStore
+from .types import (
+    ChatRequest,
+    DataUIPart,
+    FileUIPart,
+    MessagePart,
+    ReasoningUIPart,
+    SourceDocumentUIPart,
+    SourceUrlUIPart,
+    StepStartUIPart,
+    TextUIPart,
+    ToolUIPart,
+    UIMessage,
+)
 
 __all__ = [
     # Core
@@ -117,4 +130,16 @@ __all__ = [
     # Error / Abort
     "ErrorEvent",
     "AbortEvent",
+    # Incoming request types
+    "ChatRequest",
+    "UIMessage",
+    "MessagePart",
+    "TextUIPart",
+    "ReasoningUIPart",
+    "FileUIPart",
+    "SourceUrlUIPart",
+    "SourceDocumentUIPart",
+    "StepStartUIPart",
+    "DataUIPart",
+    "ToolUIPart",
 ]
