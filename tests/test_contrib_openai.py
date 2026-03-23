@@ -16,7 +16,12 @@ from typing import Any
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from ai_sdk_stream_python import StreamContext
-from ai_sdk_stream_python.contrib.openai import ConsumeResult, consume_openai_stream
+from ai_sdk_stream_python.contrib.openai import (
+    ConsumeResult,
+    consume_openai_stream,
+    convert_to_openai_messages,
+)
+from ai_sdk_stream_python.types import UIMessage
 
 # ---------------------------------------------------------------------------
 # Mock helpers — duck-typed OpenAI ChatCompletionChunk objects
@@ -541,3 +546,355 @@ class TestMixed:
         types = [e["type"] for e in events]
         assert "text-delta" in types
         assert "tool-input-available" in types
+
+
+# ---------------------------------------------------------------------------
+# TestConvertToOpenAIMessages
+# ---------------------------------------------------------------------------
+
+
+def _msg(role: str, parts: list[dict[str, Any]]) -> UIMessage:
+    return UIMessage.model_validate({"id": "m1", "role": role, "parts": parts})
+
+
+class TestConvertToOpenAIMessages:
+    # ── System messages ──────────────────────────────────────────────────────
+
+    def test_system_message(self):
+        msgs = [_msg("system", [{"type": "text", "text": "You are helpful."}])]
+        result = convert_to_openai_messages(msgs)
+        assert result == [{"role": "system", "content": "You are helpful."}]
+
+    def test_system_multiple_text_parts(self):
+        msgs = [
+            _msg(
+                "system",
+                [
+                    {"type": "text", "text": "You are helpful."},
+                    {"type": "text", "text": " Be concise."},
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert (
+            result[0]["content"] == "You are helpful. Be concise."
+        )  # parts concatenated as-is
+
+    # ── User messages ────────────────────────────────────────────────────────
+
+    def test_user_text_only(self):
+        msgs = [_msg("user", [{"type": "text", "text": "Hello"}])]
+        result = convert_to_openai_messages(msgs)
+        assert result == [{"role": "user", "content": "Hello"}]
+
+    def test_user_multiple_text_parts_concatenated(self):
+        msgs = [
+            _msg(
+                "user",
+                [
+                    {"type": "text", "text": "What is "},
+                    {"type": "text", "text": "the weather?"},
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert result[0]["content"] == "What is the weather?"
+
+    def test_user_image_file_returns_content_blocks(self):
+        msgs = [
+            _msg(
+                "user",
+                [
+                    {"type": "text", "text": "Describe this"},
+                    {
+                        "type": "file",
+                        "mediaType": "image/png",
+                        "url": "https://example.com/img.png",
+                    },
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        content = result[0]["content"]
+        assert isinstance(content, list)
+        assert content[0] == {"type": "text", "text": "Describe this"}
+        assert content[1] == {
+            "type": "image_url",
+            "image_url": {"url": "https://example.com/img.png"},
+        }
+
+    def test_user_non_image_file_skipped(self):
+        msgs = [
+            _msg(
+                "user",
+                [
+                    {"type": "text", "text": "See attachment"},
+                    {
+                        "type": "file",
+                        "mediaType": "application/pdf",
+                        "url": "data:application/pdf;base64,abc",
+                    },
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        # Non-image file dropped; falls back to string content
+        assert result[0]["content"] == "See attachment"
+
+    def test_user_skips_step_start_and_source_parts(self):
+        msgs = [
+            _msg(
+                "user",
+                [
+                    {"type": "step-start"},
+                    {"type": "text", "text": "Hello"},
+                    {"type": "source-url", "sourceId": "s1", "url": "https://x.com"},
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert result[0]["content"] == "Hello"
+
+    # ── Assistant messages ───────────────────────────────────────────────────
+
+    def test_assistant_text_only(self):
+        msgs = [_msg("assistant", [{"type": "text", "text": "Hello there."}])]
+        result = convert_to_openai_messages(msgs)
+        assert result == [{"role": "assistant", "content": "Hello there."}]
+
+    def test_assistant_tool_call_no_result(self):
+        """input-available state → tool_calls only, no tool result message."""
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "tool-search",
+                        "toolCallId": "tc1",
+                        "state": "input-available",
+                        "input": {"query": "weather NYC"},
+                    }
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert len(result) == 1
+        msg = result[0]
+        assert msg["role"] == "assistant"
+        assert msg["tool_calls"] == [
+            {
+                "id": "tc1",
+                "type": "function",
+                "function": {
+                    "name": "search",
+                    "arguments": '{"query": "weather NYC"}',
+                },
+            }
+        ]
+
+    def test_assistant_tool_call_with_result(self):
+        """output-available state → tool_calls + separate tool message."""
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "tool-search",
+                        "toolCallId": "tc1",
+                        "state": "output-available",
+                        "input": {"query": "weather NYC"},
+                        "output": {"temp": 72},
+                    }
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert len(result) == 2
+        assert result[0]["role"] == "assistant"
+        assert result[0]["tool_calls"][0]["id"] == "tc1"
+        assert result[1] == {
+            "role": "tool",
+            "tool_call_id": "tc1",
+            "content": '{"temp": 72}',
+        }
+
+    def test_assistant_tool_call_output_error(self):
+        """output-error state → tool_calls + tool message with errorText."""
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "tool-search",
+                        "toolCallId": "tc2",
+                        "state": "output-error",
+                        "errorText": "Network timeout",
+                    }
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert len(result) == 2
+        assert result[1] == {
+            "role": "tool",
+            "tool_call_id": "tc2",
+            "content": "Network timeout",
+        }
+
+    def test_assistant_dynamic_tool(self):
+        """dynamic-tool uses toolName field for the function name."""
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "dynamic-tool",
+                        "toolCallId": "tc3",
+                        "toolName": "fetch",
+                        "state": "input-available",
+                        "input": {"url": "https://example.com"},
+                    }
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        fn = result[0]["tool_calls"][0]["function"]
+        assert fn["name"] == "fetch"
+
+    def test_assistant_text_and_tool_call(self):
+        """Text content and tool_calls coexist."""
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {"type": "text", "text": "Let me look that up."},
+                    {
+                        "type": "tool-search",
+                        "toolCallId": "tc4",
+                        "state": "input-available",
+                        "input": {},
+                    },
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert result[0]["content"] == "Let me look that up."
+        assert len(result[0]["tool_calls"]) == 1
+
+    def test_assistant_no_content_with_tool_call(self):
+        """When no text, content is None (JSON null) alongside tool_calls."""
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "tool-search",
+                        "toolCallId": "tc5",
+                        "state": "input-available",
+                        "input": {},
+                    }
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert result[0]["content"] is None
+        assert len(result[0]["tool_calls"]) == 1
+
+    def test_assistant_multiple_tool_calls_with_results(self):
+        """Multiple tool calls in one assistant message → multiple tool msgs."""
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "tool-search",
+                        "toolCallId": "tc6",
+                        "state": "output-available",
+                        "input": {"q": "a"},
+                        "output": {"r": 1},
+                    },
+                    {
+                        "type": "tool-calc",
+                        "toolCallId": "tc7",
+                        "state": "output-available",
+                        "input": {"x": 2},
+                        "output": {"v": 4},
+                    },
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert len(result) == 3
+        assert result[0]["role"] == "assistant"
+        assert len(result[0]["tool_calls"]) == 2
+        assert result[1]["tool_call_id"] == "tc6"
+        assert result[2]["tool_call_id"] == "tc7"
+
+    # ── Reasoning ────────────────────────────────────────────────────────────
+
+    def test_reasoning_dropped_by_default(self):
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {"type": "reasoning", "text": "Let me think..."},
+                    {"type": "text", "text": "The answer is 42."},
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert result[0]["content"] == "The answer is 42."
+
+    def test_reasoning_included_when_flag_set(self):
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {"type": "reasoning", "text": "Let me think..."},
+                    {"type": "text", "text": "The answer is 42."},
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs, include_reasoning=True)
+        content = result[0]["content"]
+        assert "<reasoning>" in content
+        assert "Let me think..." in content
+        assert "The answer is 42." in content
+
+    # ── Multi-turn conversation ───────────────────────────────────────────────
+
+    def test_multi_turn_conversation(self):
+        """Full round-trip: user → assistant (with tool) → user."""
+        msgs = [
+            _msg("user", [{"type": "text", "text": "What's the weather?"}]),
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "tool-getWeather",
+                        "toolCallId": "tc1",
+                        "state": "output-available",
+                        "input": {"city": "NYC"},
+                        "output": {"temp": 72},
+                    },
+                    {"type": "text", "text": "It's 72°F in NYC."},
+                ],
+            ),
+            _msg("user", [{"type": "text", "text": "Thanks!"}]),
+        ]
+        result = convert_to_openai_messages(msgs)
+
+        assert len(result) == 4  # user, assistant, tool, user
+        assert result[0] == {"role": "user", "content": "What's the weather?"}
+        assert result[1]["role"] == "assistant"
+        assert result[1]["content"] == "It's 72°F in NYC."
+        assert result[1]["tool_calls"][0]["function"]["name"] == "getWeather"
+        assert result[2] == {
+            "role": "tool",
+            "tool_call_id": "tc1",
+            "content": '{"temp": 72}',
+        }
+        assert result[3] == {"role": "user", "content": "Thanks!"}
+
+    def test_empty_messages(self):
+        assert convert_to_openai_messages([]) == []

@@ -1,26 +1,37 @@
 """
-contrib.openai — consume_openai_stream() utility.
+contrib.openai — OpenAI integration utilities.
 
-Consumes an OpenAI-compatible async stream and maps each chunk to the
-appropriate ``StreamContext`` call.
+Two complementary functions:
 
-No hard dependency on the ``openai`` package: the function uses duck typing so
-it works with any compatible stream object.  The import does NOT fail if
-``openai`` is not installed.
+* ``convert_to_openai_messages()`` — **input side**: converts AI SDK v6
+  ``UIMessage`` objects (parts-based format) into
+  ``list[ChatCompletionMessageParam]`` ready to pass to the OpenAI API.
 
-Usage::
+* ``consume_openai_stream()`` — **output side**: consumes an OpenAI-compatible
+  async stream and maps each chunk to the appropriate ``StreamContext`` call.
+
+No hard dependency on the ``openai`` package: both functions use duck typing so
+they work with any compatible objects.  The import does NOT fail if ``openai``
+is not installed.
+
+Usage (full round-trip)::
 
     from openai import AsyncOpenAI
     from ai_sdk_stream_python import StreamContext
-    from ai_sdk_stream_python.contrib.openai import consume_openai_stream
+    from ai_sdk_stream_python.contrib.openai import (
+        consume_openai_stream,
+        convert_to_openai_messages,
+    )
+    from ai_sdk_stream_python.types import ChatRequest
 
     client = AsyncOpenAI()
 
 
-    async def chat(ctx: StreamContext) -> None:
+    async def chat(request: ChatRequest, ctx: StreamContext) -> None:
+        messages = convert_to_openai_messages(request.messages)
         stream = await client.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "user", "content": "Hello"}],
+            messages=messages,
             stream=True,
         )
         result = await consume_openai_stream(stream, ctx)
@@ -34,6 +45,183 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..context import StreamContext
+from ..types import (
+    FileUIPart,
+    MessagePart,
+    ReasoningUIPart,
+    TextUIPart,
+    ToolUIPart,
+    UIMessage,
+)
+
+# ── convert_to_openai_messages helpers ────────────────────────────────────────
+
+
+def _get_tool_name(part: ToolUIPart) -> str:
+    """Return the tool name for a ToolUIPart."""
+    if part.type == "dynamic-tool":
+        return part.toolName or ""
+    return part.type.removeprefix("tool-")
+
+
+def _user_content(parts: list[MessagePart]) -> str | list[dict[str, Any]]:
+    """Build the ``content`` value for a user message.
+
+    Returns a plain string when only text parts are present.  Returns a list
+    of content blocks when image file parts are included.
+
+    Non-image files, reasoning, source, step-start, and data parts are skipped.
+    """
+    blocks: list[dict[str, Any]] = []
+    has_image = False
+
+    for part in parts:
+        if isinstance(part, TextUIPart):
+            blocks.append({"type": "text", "text": part.text})
+        elif isinstance(part, FileUIPart) and part.mediaType.startswith("image/"):
+            has_image = True
+            blocks.append({"type": "image_url", "image_url": {"url": part.url}})
+
+    if not has_image:
+        return "".join(b["text"] for b in blocks if b["type"] == "text")
+    return blocks
+
+
+def _assistant_messages(
+    parts: list[MessagePart],
+    include_reasoning: bool,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Build the assistant message dict and any following tool result messages.
+
+    Returns a tuple of:
+    - The ``role: "assistant"`` message dict (with optional ``tool_calls``).
+    - A list of ``role: "tool"`` message dicts for completed tool invocations.
+    """
+    reasoning_chunks: list[str] = []
+    text_chunks: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    tool_results: list[dict[str, Any]] = []
+
+    for part in parts:
+        if isinstance(part, ReasoningUIPart):
+            if include_reasoning:
+                reasoning_chunks.append(part.text)
+        elif isinstance(part, TextUIPart):
+            text_chunks.append(part.text)
+        elif isinstance(part, ToolUIPart):
+            tool_name = _get_tool_name(part)
+            args = json.dumps(part.input) if part.input is not None else "{}"
+            tool_calls.append(
+                {
+                    "id": part.toolCallId,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": args},
+                }
+            )
+            if part.state == "output-available":
+                tool_results.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": part.toolCallId,
+                        "content": (
+                            json.dumps(part.output) if part.output is not None else ""
+                        ),
+                    }
+                )
+            elif part.state == "output-error":
+                tool_results.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": part.toolCallId,
+                        "content": part.errorText or "Tool execution failed",
+                    }
+                )
+
+    content_parts: list[str] = []
+    if reasoning_chunks:
+        content_parts.append(f"<reasoning>\n{''.join(reasoning_chunks)}\n</reasoning>")
+    content_parts.extend(text_chunks)
+    content = "".join(content_parts) or None  # None → JSON null (valid with tool_calls)
+
+    assistant: dict[str, Any] = {"role": "assistant", "content": content}
+    if tool_calls:
+        assistant["tool_calls"] = tool_calls
+
+    return assistant, tool_results
+
+
+# ── Public API ─────────────────────────────────────────────────────────────────
+
+
+def convert_to_openai_messages(
+    messages: list[UIMessage],
+    *,
+    include_reasoning: bool = False,
+) -> list[dict[str, Any]]:
+    """Convert AI SDK v6 ``UIMessage`` objects to OpenAI chat message params.
+
+    Transforms the parts-based ``UIMessage`` format sent by ``useChat`` into
+    ``list[ChatCompletionMessageParam]`` suitable for the OpenAI API.
+
+    Part mapping:
+
+    ========================  ================================================
+    AI SDK v6 part            OpenAI mapping
+    ========================  ================================================
+    ``TextUIPart``            ``content`` string / ``{"type": "text"}`` block
+    ``FileUIPart`` (image)    ``{"type": "image_url", "image_url": {...}}``
+    ``FileUIPart`` (other)    *skipped*
+    ``ToolUIPart``            assistant ``tool_calls`` entry
+    ``ToolUIPart`` (result)   separate ``role: "tool"`` message
+    ``ReasoningUIPart``       *skipped* unless *include_reasoning* is ``True``
+    All other parts           *skipped*
+    ========================  ================================================
+
+    For ``ToolUIPart`` state semantics:
+
+    * ``"output-available"`` → assistant ``tool_calls`` **and** a ``role:
+      "tool"`` result message.
+    * ``"output-error"`` → assistant ``tool_calls`` and a ``role: "tool"``
+      message containing the ``errorText``.
+    * Any other state (``"input-streaming"``, ``"input-available"``, etc.) →
+      assistant ``tool_calls`` only; no result message.
+
+    Parameters
+    ----------
+    messages:
+        The ``messages`` list from a ``ChatRequest`` (or any sequence of
+        ``UIMessage`` objects).
+    include_reasoning:
+        When ``True``, ``ReasoningUIPart`` text is prepended to the assistant
+        message content inside ``<reasoning>…</reasoning>`` tags.  Defaults
+        to ``False`` (reasoning parts are dropped).
+
+    Returns
+    -------
+    list[dict[str, Any]]
+        A list of message dicts compatible with ``ChatCompletionMessageParam``.
+        The list may be longer than *messages* when assistant messages contain
+        completed tool calls (each adds a ``role: "tool"`` entry).
+    """
+    result: list[dict[str, Any]] = []
+
+    for msg in messages:
+        if msg.role == "system":
+            text = "".join(
+                part.text for part in msg.parts if isinstance(part, TextUIPart)
+            )
+            result.append({"role": "system", "content": text})
+
+        elif msg.role == "user":
+            content = _user_content(msg.parts)
+            result.append({"role": "user", "content": content})
+
+        elif msg.role == "assistant":
+            assistant_msg, tool_msgs = _assistant_messages(msg.parts, include_reasoning)
+            result.append(assistant_msg)
+            result.extend(tool_msgs)
+
+    return result
 
 
 @dataclass
@@ -242,4 +430,4 @@ async def consume_openai_stream(
     )
 
 
-__all__ = ["ConsumeResult", "consume_openai_stream"]
+__all__ = ["ConsumeResult", "consume_openai_stream", "convert_to_openai_messages"]
