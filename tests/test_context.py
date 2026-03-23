@@ -852,7 +852,10 @@ class TestStartMetadata:
 
         events = await run_and_collect(work)
         start_event = next(e for e in events if e["type"] == "start")
-        assert "messageMetadata" not in start_event or start_event.get("messageMetadata") is None
+        assert (
+            "messageMetadata" not in start_event
+            or start_event.get("messageMetadata") is None
+        )
 
     async def test_start_metadata_none_explicit(self):
         """Passing start_metadata=None behaves the same as omitting it."""
