@@ -1,6 +1,128 @@
 # CHANGELOG
 
 
+## v0.2.0-a.5 (2026-03-23)
+
+### Bug Fixes
+
+- Accept any JSON-serializable value in write_data(), not just dict
+  ([`cf9625d`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/cf9625d45abd36982194b01076e7a722b493c7bb))
+
+The AI SDK v6 wire protocol allows the `data` field in `data-{name}` events to be any JSON value
+  (string, number, null, array, or object). The previous `dict[str, Any]` constraint made common
+  patterns like streaming chat titles or signaling artifact completion impossible.
+
+Closes #34
+
+- Add collect param to write_data() and use model_dump_json in DataEvent.encode()
+  ([`57b3d82`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/57b3d82bb23f80eda7f43e64af65d9eff033ab68))
+
+- write_data() now accepts collect: bool | None = None and routes through _should_collect(),
+  consistent with all other high-level write helpers - DataEvent.encode() uses model_dump_json()
+  (Pydantic's serializer) instead of model_dump() + json.dumps(), fixing TypeError for
+  non-JSON-native types (datetime, UUID, Enum, etc.) inside the data field
+
+- Raise RuntimeError when collect=True is passed on non-collecting context
+  ([`2bbda8d`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/2bbda8de2ef4d8df8c2ce6bb061f4343c2fdf0b5))
+
+Change per-call collect parameter default from True to None (follow context setting). When a caller
+  explicitly passes collect=True but the StreamContext was created with collect=False, raise
+  RuntimeError instead of silently discarding the data. This prevents a class of silent bugs where
+  developers think they are collecting but the context has no record.
+
+Three-way semantics: - None (default): collect if context-level collection is enabled - True:
+  require collection; raise if no record exists - False: skip collection even if context-level is
+  enabled
+
+### Features
+
+- Add `start_metadata` parameter to `StreamContext` for `start` event `messageMetadata`
+  ([#26](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/26),
+  [`6d9ca16`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/6d9ca16304c0b6f0299ab73d8e9f4780a7bb936f))
+
+feat: support start_metadata on StreamContext for start event messageMetadata
+
+Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
+
+Agent-Logs-Url:
+  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/e1fc71ca-6c44-48e5-9f74-df0da0cb80f5
+
+---------
+
+Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+
+- Add contrib.openai.consume_openai_stream() utility
+  ([`c6bf3a1`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/c6bf3a1aea6d0bd98e5f7bd1165dde95bb81ceaf))
+
+Adds a new optional contrib module that eliminates the ~40-line boilerplate every OpenAI +
+  StreamContext backend must write.
+
+- Maps delta.content → ctx.write_text() - Maps delta.reasoning / delta.reasoning_content →
+  ctx.write_reasoning() - Buffers tool call chunks by index; emits tool-input-start +
+  tool-input-available at end (or streams deltas when stream_tool_deltas=True) - Extracts
+  finish_reason and usage (when stream_options include_usage=True) - No hard dependency on the
+  openai package — uses duck typing throughout - Returns ConsumeResult with content, tool_calls,
+  finish_reason, usage
+
+Closes #23
+
+- Add ctx.run() safe task runner to prevent stream hangs on crash
+  ([`2f585d9`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/2f585d954a71206a58fd37dfbed90d306cbc25f5))
+
+When a background task raises an unhandled exception the stream now terminates with an error event
+  instead of blocking the client forever. run() also auto-calls finish() if the coroutine returns
+  without it.
+
+Resolves: #20
+
+- Add per-call collect=False to skip recording individual writes
+  ([`778ab1e`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/778ab1ebf2c79578a12c7c088c3c6bcf7617900f))
+
+Add a `collect` keyword parameter (default True) to write_text, write_reasoning, write_source,
+  write_file, begin_tool_call, and start_tool_input. When collect=False, the event is still emitted
+  to the SSE stream but not recorded in ctx.record. This lets developers stream ephemeral content
+  (status messages, internal tool calls) without polluting the persisted record.
+
+Closes #30
+
+- Add timing fields to StreamRecord
+  ([#27](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/27),
+  [`c81e608`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/c81e6082a4751cc2497b1e3ad1fbd832bc6426a5))
+
+feat: add timing (created_at/finished_at/duration_ms) to StreamRecord
+
+Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
+
+Agent-Logs-Url:
+  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/781f63ee-0c28-4c82-bcc1-73f004039b4d
+
+* fix: address review comments on StreamRecord timing fields
+
+- Remove dead-code guard in to_dict(): created_at is non-optional so the `if self.created_at else
+  None` branch was never reachable - Document created_at, finished_at, and duration_ms in
+  StreamRecord docstring - Rename test_finished_at_none_before_finish →
+  test_finished_at_none_initially to avoid confusion (the test called finish() internally)
+
+---------
+
+Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+
+Co-authored-by: shloimy wiesel <w.63071@gmail.com>
+
+- Auto-count streaming tokens in StreamRecord with optional tokenizer
+  ([`db3a352`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/db3a352480db0f9b732fb6f3da12fb0e6251494e))
+
+Closes #17
+
+- Add `reasoning_tokens`, `answer_tokens`, `prompt_tokens` fields to `StreamRecord` - Add
+  `total_output_tokens` and `total_tokens` computed properties - `write_text` and `write_reasoning`
+  now auto-increment token counts via configurable `count_func` (defaults to `len`, i.e. character
+  count) - Add `StreamContext(count_func=...)` parameter to swap in any `Callable[[str], int]` (e.g.
+  tiktoken, word count) - Add `ctx.set_usage(prompt_tokens, reasoning_tokens, answer_tokens)` to
+  override auto-counted values with exact LLM-reported numbers - Include all token fields in
+  `StreamRecord.to_dict()`
+
+
 ## v0.2.0-a.4 (2026-03-23)
 
 ### Features
