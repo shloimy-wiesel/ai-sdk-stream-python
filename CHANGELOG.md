@@ -1,6 +1,26 @@
 # CHANGELOG
 
 
+## v0.2.0-a.7 (2026-03-23)
+
+### Features
+
+- Add convert_to_openai_messages() to contrib.openai
+  ([#42](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/42),
+  [`153145b`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/153145b686b35b63d7259687e89fb59a7315022c))
+
+Converts AI SDK v6 UIMessage parts-based format to list[ChatCompletionMessageParam] for the OpenAI
+  API, completing the input → output pipeline in contrib.openai alongside consume_openai_stream().
+
+Part mapping: - TextUIPart → content string or {"type":"text"} block - FileUIPart (image) →
+  {"type":"image_url"} content block - ToolUIPart (output-available) → assistant tool_calls +
+  role:"tool" message - ToolUIPart (output-error) → assistant tool_calls + tool error message -
+  ToolUIPart (other states) → assistant tool_calls only - ReasoningUIPart → dropped by default;
+  included in <reasoning> tags when include_reasoning=True
+
+Closes #31.
+
+
 ## v0.2.0-a.6 (2026-03-23)
 
 ### Features
