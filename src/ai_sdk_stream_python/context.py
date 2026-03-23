@@ -213,6 +213,25 @@ class StreamContext(Generic[_InfoT]):
         """
         return self._record
 
+    def _should_collect(self, collect: bool | None) -> bool:
+        """Resolve per-call *collect* against context-level collection.
+
+        - ``None`` (default) → collect if context-level collection is enabled.
+        - ``True`` → require collection; raise if context has no record.
+        - ``False`` → skip collection even if context-level is enabled.
+        """
+        if collect is True and self._record is None:
+            raise RuntimeError(
+                "collect=True was passed but the StreamContext was created "
+                "with collect=False. Either enable collection on the context "
+                "(StreamContext(collect=True)) or omit the per-call collect "
+                "parameter."
+            )
+        if collect is False:
+            return False
+        # collect is None → follow context setting
+        return self._record is not None
+
     # ── Low-level sync emit ────────────────────────────────────────────────────
 
     def write_event_to_stream(self, ev: BaseEvent) -> None:
@@ -268,7 +287,7 @@ class StreamContext(Generic[_InfoT]):
 
     # ── High-level async write helpers ────────────────────────────────────────
 
-    async def write_text(self, delta: str, *, collect: bool = True) -> None:
+    async def write_text(self, delta: str, *, collect: bool | None = None) -> None:
         """
         Stream a text delta.
 
@@ -276,7 +295,8 @@ class StreamContext(Generic[_InfoT]):
         open.  Also closes any open reasoning part first.
 
         Pass ``collect=False`` to stream the delta to the frontend without
-        recording it in ``ctx.record``.
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_reasoning_closed()
@@ -284,11 +304,11 @@ class StreamContext(Generic[_InfoT]):
             self._text_id = str(uuid.uuid4())
             self._queue.put_nowait(TextStartEvent(id=self._text_id))
         self._queue.put_nowait(TextDeltaEvent(id=self._text_id, delta=delta))
-        if self._record is not None and collect:
+        if self._should_collect(collect) and self._record is not None:
             self._record.text += delta
             self._record.answer_tokens += self._count(delta)
 
-    async def write_reasoning(self, delta: str, *, collect: bool = True) -> None:
+    async def write_reasoning(self, delta: str, *, collect: bool | None = None) -> None:
         """
         Stream a reasoning / chain-of-thought delta.
 
@@ -296,7 +316,8 @@ class StreamContext(Generic[_InfoT]):
         yet open.  Also closes any open text part first.
 
         Pass ``collect=False`` to stream the delta to the frontend without
-        recording it in ``ctx.record``.
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
@@ -304,7 +325,7 @@ class StreamContext(Generic[_InfoT]):
             self._reasoning_id = str(uuid.uuid4())
             self._queue.put_nowait(ReasoningStartEvent(id=self._reasoning_id))
         self._queue.put_nowait(ReasoningDeltaEvent(id=self._reasoning_id, delta=delta))
-        if self._record is not None and collect:
+        if self._should_collect(collect) and self._record is not None:
             self._record.reasoning += delta
             self._record.reasoning_tokens += self._count(delta)
 
@@ -324,7 +345,7 @@ class StreamContext(Generic[_InfoT]):
         tool_input: dict[str, Any],
         *,
         tool_call_id: str | None = None,
-        collect: bool = True,
+        collect: bool | None = None,
     ) -> ToolCallHandle:
         """
         Emit ``tool-input-start`` + ``tool-input-available`` and return a
@@ -336,7 +357,8 @@ class StreamContext(Generic[_InfoT]):
         Pass ``collect=False`` to stream the tool call to the frontend without
         recording it in ``ctx.record``.  Subsequent ``complete_tool_call`` /
         ``fail_tool_call`` calls will naturally skip the update since no
-        matching record exists.
+        matching record exists.  Passing ``collect=True`` when the context
+        was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
@@ -348,7 +370,7 @@ class StreamContext(Generic[_InfoT]):
                 toolCallId=tcid, toolName=tool_name, input=tool_input
             )
         )
-        if self._record is not None and collect:
+        if self._should_collect(collect) and self._record is not None:
             self._record.tool_calls.append(
                 ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input=tool_input)
             )
@@ -359,7 +381,7 @@ class StreamContext(Generic[_InfoT]):
         tool_name: str,
         *,
         tool_call_id: str | None = None,
-        collect: bool = True,
+        collect: bool | None = None,
     ) -> ToolCallHandle:
         """
         Emit ``tool-input-start`` and return a handle for streaming deltas.
@@ -369,14 +391,15 @@ class StreamContext(Generic[_InfoT]):
         finish with :meth:`finish_tool_input`.
 
         Pass ``collect=False`` to stream the tool call to the frontend without
-        recording it in ``ctx.record``.
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
         await self._ensure_reasoning_closed()
         tcid = tool_call_id or str(uuid.uuid4())
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
-        if self._record is not None and collect:
+        if self._should_collect(collect) and self._record is not None:
             self._record.tool_calls.append(
                 ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input={})
             )
@@ -471,7 +494,7 @@ class StreamContext(Generic[_InfoT]):
         self.write_event_to_stream(event)
 
     async def write_file(
-        self, url: str, media_type: str, *, collect: bool = True
+        self, url: str, media_type: str, *, collect: bool | None = None
     ) -> None:
         """
         Emit a ``file`` event (image, PDF, or other file content).
@@ -480,10 +503,11 @@ class StreamContext(Generic[_InfoT]):
         On the frontend this produces a ``FileUIPart`` in ``message.parts``.
 
         Pass ``collect=False`` to stream the file to the frontend without
-        recording it in ``ctx.record``.
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
-        if self._record is not None and collect:
+        if self._should_collect(collect) and self._record is not None:
             self._record.files.append(FileRecord(url=url, media_type=media_type))
         self.write_event_to_stream(FileEvent(url=url, mediaType=media_type))
 
@@ -493,16 +517,17 @@ class StreamContext(Generic[_InfoT]):
         url: str,
         title: str | None = None,
         *,
-        collect: bool = True,
+        collect: bool | None = None,
     ) -> None:
         """
         Emit a ``source-url`` event (document / citation reference).
 
         Pass ``collect=False`` to stream the source to the frontend without
-        recording it in ``ctx.record``.
+        recording it in ``ctx.record``.  Passing ``collect=True`` when the
+        context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_started()
-        if self._record is not None and collect:
+        if self._should_collect(collect) and self._record is not None:
             self._record.sources.append(
                 SourceRecord(source_id=source_id, url=url, title=title)
             )

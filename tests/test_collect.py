@@ -760,6 +760,108 @@ class TestPerCallCollectFalse:
         assert ctx.record is None
 
 
+# ---------------------------------------------------------------------------
+# Per-call collect=True on non-collecting context raises RuntimeError
+# ---------------------------------------------------------------------------
+
+
+class TestPerCallCollectTrueOnNonCollecting:
+    async def test_write_text_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_text("hi", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_write_reasoning_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_reasoning("think", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_write_source_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_source("s1", "https://a.com", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_write_file_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.write_file("https://a.com/f.png", "image/png", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_begin_tool_call_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.begin_tool_call("t", {"x": 1}, collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_start_tool_input_collect_true_raises(self):
+        ctx = StreamContext(collect=False)
+        import pytest
+
+        with pytest.raises(RuntimeError, match="collect=True was passed"):
+            await ctx.start_tool_input("t", collect=True)
+        await ctx.finish()
+        async for _ in ctx.stream():
+            pass
+
+    async def test_collect_true_ok_when_context_collecting(self):
+        """Explicit collect=True is fine when context has collect=True."""
+
+        async def work(ctx):
+            await ctx.write_text("hi", collect=True)
+            await ctx.write_reasoning("think", collect=True)
+            await ctx.write_source("s1", "https://a.com", collect=True)
+            await ctx.write_file("https://a.com/f.png", "image/png", collect=True)
+            h = await ctx.begin_tool_call("t", {"x": 1}, collect=True)
+            await ctx.complete_tool_call(h.toolCallId, "out")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=True)
+        assert ctx.record is not None
+        assert ctx.record.text == "hi"
+        assert ctx.record.reasoning == "think"
+        assert len(ctx.record.sources) == 1
+        assert len(ctx.record.files) == 1
+        assert len(ctx.record.tool_calls) == 1
+
+    async def test_default_none_no_error_when_not_collecting(self):
+        """Default collect=None silently skips when context has no record."""
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.write_reasoning("think")
+            await ctx.write_source("s1", "https://a.com")
+            await ctx.write_file("https://a.com/f.png", "image/png")
+            h = await ctx.begin_tool_call("t", {"x": 1})
+            await ctx.complete_tool_call(h.toolCallId, "out")
+            await ctx.finish()
+
+        ctx = await run_collecting(work, collect=False)
+        assert ctx.record is None
+
+
 class TestCollectAbort:
     async def test_abort_does_not_set_finish_reason(self):
         async def work(ctx):
