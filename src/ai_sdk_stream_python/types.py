@@ -21,13 +21,15 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
 # ── Part models ────────────────────────────────────────────────────────────────
 
 
 class TextUIPart(BaseModel):
     """Plain-text content part (type: ``"text"``)."""
+
+    model_config = ConfigDict(extra="allow")
 
     type: Literal["text"] = "text"
     text: str
@@ -37,6 +39,8 @@ class TextUIPart(BaseModel):
 class ReasoningUIPart(BaseModel):
     """Chain-of-thought reasoning part (type: ``"reasoning"``)."""
 
+    model_config = ConfigDict(extra="allow")
+
     type: Literal["reasoning"] = "reasoning"
     text: str
     state: Literal["streaming", "done"] | None = None
@@ -44,6 +48,8 @@ class ReasoningUIPart(BaseModel):
 
 class FileUIPart(BaseModel):
     """File attachment part (type: ``"file"``)."""
+
+    model_config = ConfigDict(extra="allow")
 
     type: Literal["file"] = "file"
     mediaType: str
@@ -54,6 +60,8 @@ class FileUIPart(BaseModel):
 class SourceUrlUIPart(BaseModel):
     """URL citation / source part (type: ``"source-url"``)."""
 
+    model_config = ConfigDict(extra="allow")
+
     type: Literal["source-url"] = "source-url"
     sourceId: str
     url: str
@@ -62,6 +70,8 @@ class SourceUrlUIPart(BaseModel):
 
 class SourceDocumentUIPart(BaseModel):
     """Document source part (type: ``"source-document"``)."""
+
+    model_config = ConfigDict(extra="allow")
 
     type: Literal["source-document"] = "source-document"
     sourceId: str
@@ -72,6 +82,8 @@ class SourceDocumentUIPart(BaseModel):
 
 class StepStartUIPart(BaseModel):
     """Step boundary marker (type: ``"step-start"``, no additional fields)."""
+
+    model_config = ConfigDict(extra="allow")
 
     type: Literal["step-start"] = "step-start"
 
@@ -88,6 +100,7 @@ class DataUIPart(BaseModel):
     type: str  # "data-{name}"
     id: str | None = None
     data: Any = None
+    transient: bool | None = None
 
 
 class ToolUIPart(BaseModel):
@@ -131,6 +144,12 @@ class ToolUIPart(BaseModel):
     output: Any = None
     errorText: str | None = None
 
+    @model_validator(mode="after")
+    def _require_tool_name_for_dynamic(self) -> ToolUIPart:
+        if self.type == "dynamic-tool" and self.toolName is None:
+            raise ValueError("toolName is required when type is 'dynamic-tool'")
+        return self
+
 
 # ── Discriminated union ────────────────────────────────────────────────────────
 
@@ -154,7 +173,7 @@ def _discriminate_part(v: Any) -> str:
         return "tool"
     if t.startswith("data-"):
         return "data"
-    return "text"  # safe fallback
+    raise ValueError(f"Unknown UIMessage part type: {t!r}")
 
 
 MessagePart = Annotated[
@@ -205,7 +224,7 @@ class ChatRequest(BaseModel):
 
     id: str
     messages: list[UIMessage]
-    trigger: Literal["submit-message", "regenerate-message"] | str
+    trigger: str  # known values: "submit-message", "regenerate-message"
 
 
 __all__ = [
