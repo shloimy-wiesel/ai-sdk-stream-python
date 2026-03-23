@@ -144,12 +144,14 @@ class StreamContext(Generic[_InfoT]):
         collect: bool = False,
         custom_information: _InfoT | None = None,
         on_finish: OnFinishCallback | None = None,
+        start_metadata: dict[str, Any] | None = None,
     ) -> None:
         self._message_id: str = message_id or str(uuid.uuid4())
         self._queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
         self.store: StateStore = StateStore()
         self._info: _InfoT | None = custom_information
         self._on_finish: OnFinishCallback | None = on_finish
+        self._start_metadata: dict[str, Any] | None = start_metadata
 
         # Lifecycle state
         self._started: bool = False
@@ -229,7 +231,9 @@ class StreamContext(Generic[_InfoT]):
     async def _ensure_started(self) -> None:
         if not self._started:
             self._started = True
-            self._queue.put_nowait(StartEvent(messageId=self._message_id))
+            self._queue.put_nowait(
+                StartEvent(messageId=self._message_id, messageMetadata=self._start_metadata)
+            )
 
     async def _ensure_step_open(self) -> None:
         await self._ensure_started()

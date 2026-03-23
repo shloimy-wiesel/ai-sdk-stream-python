@@ -826,6 +826,60 @@ class TestOnFinish:
 
 
 # ---------------------------------------------------------------------------
+# start_metadata
+# ---------------------------------------------------------------------------
+
+
+class TestStartMetadata:
+    async def test_start_metadata_included_in_start_event(self):
+        """start_metadata is forwarded to the start event's messageMetadata field."""
+        metadata = {"createdAt": 1711000000, "model": "gpt-4o"}
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        events = await run_and_collect(work, start_metadata=metadata)
+        start_event = next(e for e in events if e["type"] == "start")
+        assert start_event["messageMetadata"] == metadata
+
+    async def test_no_start_metadata_omits_field(self):
+        """When start_metadata is not provided, messageMetadata is absent."""
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        start_event = next(e for e in events if e["type"] == "start")
+        assert "messageMetadata" not in start_event or start_event.get("messageMetadata") is None
+
+    async def test_start_metadata_none_explicit(self):
+        """Passing start_metadata=None behaves the same as omitting it."""
+
+        async def work(ctx):
+            await ctx.finish()
+
+        events = await run_and_collect(work, start_metadata=None)
+        start_event = next(e for e in events if e["type"] == "start")
+        assert start_event.get("messageMetadata") is None
+
+    async def test_start_metadata_emitted_once(self):
+        """Even with multiple writes, the start event (with metadata) is only emitted once."""
+        metadata = {"chatType": "simple"}
+
+        async def work(ctx):
+            await ctx.write_text("a")
+            await ctx.write_text("b")
+            await ctx.finish()
+
+        events = await run_and_collect(work, start_metadata=metadata)
+        start_events = [e for e in events if e["type"] == "start"]
+        assert len(start_events) == 1
+        assert start_events[0]["messageMetadata"] == metadata
+
+
+# ---------------------------------------------------------------------------
 # pytest-asyncio config
 # ---------------------------------------------------------------------------
 
