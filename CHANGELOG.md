@@ -1,316 +1,49 @@
 # CHANGELOG
 
 
-## v0.2.0-a.8 (2026-03-29)
+## v0.2.0 (2026-03-29)
 
 ### Features
 
-- Add Vercel Chatbot Python backend using ai-sdk-stream-python (example only)
-  ([`9a02914`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/9a02914814c238170895d1eaed6019cbbbc0133f))
+- Complete v0.2.0 feature set — collection, typed info, events, OpenAI adapter, and request types
+  ([`749cab2`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/749cab22b69af12cdf7f3025dec5fca7cca9079e))
 
-- Implemented 5 tools: getWeather, createDocument, updateDocument, editDocument, requestSuggestions
-  - Fixed conversation history persistence: assistant messages now saved to Redis - Uses
-  StreamContext for lifecycle-safe streaming - Redis for session persistence (chat history +
-  documents) - Handles delta strategy per artifact kind (text=incremental, code/sheet=full) - All
-  tools verified working via browser Playwright tests
+Add the full StreamContext feature surface for AI SDK v6 compatibility:
+
+Stream collection & persistence: - collect=True accumulates text, reasoning, tool calls, sources,
+  files, data parts, token counts, and timing into StreamRecord (ctx.record) - on_finish callback
+  for post-stream DB persistence - Per-call collect=False to skip recording ephemeral writes -
+  RuntimeError when collect=True on non-collecting context
+
+StreamContext enhancements: - Generic[_InfoT] typed custom_information (ctx.info) for request-scoped
+  metadata - ctx.run() safe task runner: auto-finish, auto-error, GC-safe - ctx.error() emits
+  ErrorEvent then terminates stream - ctx.abort() emits AbortEvent per v6 spec (with optional
+  reason) - ctx.write_file() for FileEvent support - ctx.write_data() for dynamic data-{name} parts
+  (any JSON-serializable value) - start_tool_input/stream_tool_input_delta/finish_tool_input for
+  streaming tool input - start_metadata parameter for start event messageMetadata - Auto-count
+  streaming tokens with configurable count_func + set_usage() override - Timing fields (created_at,
+  finished_at, duration_ms) on StreamRecord
+
+New event types: - ErrorEvent, AbortEvent, FileEvent, DataEvent (dynamic type) -
+  ToolInputStartEvent, ToolInputDeltaEvent, ToolInputAvailableEvent
+
+OpenAI contrib module (contrib/openai): - consume_openai_stream() maps OpenAI chunks to ctx.write_*
+  calls - convert_to_openai_messages() converts UIMessage parts to ChatCompletionMessageParam -
+  Duck-typed — no hard openai package dependency
+
+Request body types (types.py): - ChatRequest, UIMessage, and all v6 part models (TextUIPart,
+  ToolUIPart, etc.) - Discriminated union for MessagePart with dynamic prefix support -
+  extra="allow" for forward compatibility
+
+Bug fixes: - Tool name deduplication in consume_openai_stream - Tool call ID consistency using
+  ToolCallHandle.toolCallId - write_data() accepts any JSON-serializable value, not just dict -
+  DataEvent.encode() uses model_dump_json() for non-native types
+
+Also adds chatbot-backend example (FastAPI + Redis + 5 tools), hierarchical AGENTS.md knowledge
+  base, and 237 passing tests.
 
 
 ## v0.1.2 (2026-03-22)
-
-### Bug Fixes
-
-- Prevent tool name duplication and ensure tool call ID consistency in consume_openai_stream
-  ([`6351182`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/6351182445e7ed42a58a0080a0b3dadbbc73640f))
-
-Agent-Logs-Url:
-  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/f0d42dd6-0fe4-44ed-be7e-1e5e9abaaf43
-
-Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
-
-
-## v0.2.0-a.7 (2026-03-23)
-
-### Features
-
-- Add convert_to_openai_messages() to contrib.openai
-  ([#42](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/42),
-  [`153145b`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/153145b686b35b63d7259687e89fb59a7315022c))
-
-Converts AI SDK v6 UIMessage parts-based format to list[ChatCompletionMessageParam] for the OpenAI
-  API, completing the input → output pipeline in contrib.openai alongside consume_openai_stream().
-
-Part mapping: - TextUIPart → content string or {"type":"text"} block - FileUIPart (image) →
-  {"type":"image_url"} content block - ToolUIPart (output-available) → assistant tool_calls +
-  role:"tool" message - ToolUIPart (output-error) → assistant tool_calls + tool error message -
-  ToolUIPart (other states) → assistant tool_calls only - ReasoningUIPart → dropped by default;
-  included in <reasoning> tags when include_reasoning=True
-
-Closes #31.
-
-
-## v0.2.0-a.6 (2026-03-23)
-
-### Features
-
-- Add Pydantic request body types for AI SDK v6 message format
-  ([#39](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/39),
-  [`12d3e93`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/12d3e9358b531ae662a4ff0be905e9de166bcc17))
-
-* feat: add Pydantic request body types for AI SDK v6 message format
-
-Closes #32.
-
-Adds `types.py` with typed Pydantic models for deserialising incoming `useChat` request bodies:
-  `ChatRequest`, `UIMessage`, and all part types (`TextUIPart`, `ReasoningUIPart`, `FileUIPart`,
-  `SourceUrlUIPart`, `SourceDocumentUIPart`, `StepStartUIPart`, `DataUIPart`, `ToolUIPart`).
-
-`MessagePart` is a discriminated union that handles both literal type fields and dynamic prefixes
-  (`tool-*`, `data-*`, `dynamic-tool`). Tool states use the v6 names (`input-streaming`,
-  `input-available`, `output-available`, `output-error`). `ChatRequest` uses `extra="allow"` so
-  app-specific fields pass through transparently.
-
-* fix: address code review issues in request types
-
-- Add extra="allow" to all simple part models for forward-compat - Add model_validator to ToolUIPart
-  requiring toolName on dynamic-tool parts - Add transient field to DataUIPart matching outbound
-  DataEvent - Drop Literal|str no-op on trigger; use plain str with doc comment - Raise ValueError
-  for unknown part types instead of silently falling back to TextUIPart - Fix
-  test_uimessage_extra_fields_allowed to assert extra field is accessible - Reorganize test_types.py
-  into class Test* blocks matching project convention
-
-
-## v0.2.0-a.5 (2026-03-23)
-
-### Bug Fixes
-
-- Accept any JSON-serializable value in write_data(), not just dict
-  ([`cf9625d`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/cf9625d45abd36982194b01076e7a722b493c7bb))
-
-The AI SDK v6 wire protocol allows the `data` field in `data-{name}` events to be any JSON value
-  (string, number, null, array, or object). The previous `dict[str, Any]` constraint made common
-  patterns like streaming chat titles or signaling artifact completion impossible.
-
-Closes #34
-
-- Add collect param to write_data() and use model_dump_json in DataEvent.encode()
-  ([`57b3d82`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/57b3d82bb23f80eda7f43e64af65d9eff033ab68))
-
-- write_data() now accepts collect: bool | None = None and routes through _should_collect(),
-  consistent with all other high-level write helpers - DataEvent.encode() uses model_dump_json()
-  (Pydantic's serializer) instead of model_dump() + json.dumps(), fixing TypeError for
-  non-JSON-native types (datetime, UUID, Enum, etc.) inside the data field
-
-- Raise RuntimeError when collect=True is passed on non-collecting context
-  ([`2bbda8d`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/2bbda8de2ef4d8df8c2ce6bb061f4343c2fdf0b5))
-
-Change per-call collect parameter default from True to None (follow context setting). When a caller
-  explicitly passes collect=True but the StreamContext was created with collect=False, raise
-  RuntimeError instead of silently discarding the data. This prevents a class of silent bugs where
-  developers think they are collecting but the context has no record.
-
-Three-way semantics: - None (default): collect if context-level collection is enabled - True:
-  require collection; raise if no record exists - False: skip collection even if context-level is
-  enabled
-
-### Features
-
-- Add `start_metadata` parameter to `StreamContext` for `start` event `messageMetadata`
-  ([#26](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/26),
-  [`6d9ca16`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/6d9ca16304c0b6f0299ab73d8e9f4780a7bb936f))
-
-feat: support start_metadata on StreamContext for start event messageMetadata
-
-Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
-
-Agent-Logs-Url:
-  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/e1fc71ca-6c44-48e5-9f74-df0da0cb80f5
-
----------
-
-Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
-
-- Add contrib.openai.consume_openai_stream() utility
-  ([`c6bf3a1`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/c6bf3a1aea6d0bd98e5f7bd1165dde95bb81ceaf))
-
-Adds a new optional contrib module that eliminates the ~40-line boilerplate every OpenAI +
-  StreamContext backend must write.
-
-- Maps delta.content → ctx.write_text() - Maps delta.reasoning / delta.reasoning_content →
-  ctx.write_reasoning() - Buffers tool call chunks by index; emits tool-input-start +
-  tool-input-available at end (or streams deltas when stream_tool_deltas=True) - Extracts
-  finish_reason and usage (when stream_options include_usage=True) - No hard dependency on the
-  openai package — uses duck typing throughout - Returns ConsumeResult with content, tool_calls,
-  finish_reason, usage
-
-Closes #23
-
-- Add ctx.run() safe task runner to prevent stream hangs on crash
-  ([`2f585d9`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/2f585d954a71206a58fd37dfbed90d306cbc25f5))
-
-When a background task raises an unhandled exception the stream now terminates with an error event
-  instead of blocking the client forever. run() also auto-calls finish() if the coroutine returns
-  without it.
-
-Resolves: #20
-
-- Add per-call collect=False to skip recording individual writes
-  ([`778ab1e`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/778ab1ebf2c79578a12c7c088c3c6bcf7617900f))
-
-Add a `collect` keyword parameter (default True) to write_text, write_reasoning, write_source,
-  write_file, begin_tool_call, and start_tool_input. When collect=False, the event is still emitted
-  to the SSE stream but not recorded in ctx.record. This lets developers stream ephemeral content
-  (status messages, internal tool calls) without polluting the persisted record.
-
-Closes #30
-
-- Add timing fields to StreamRecord
-  ([#27](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/27),
-  [`c81e608`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/c81e6082a4751cc2497b1e3ad1fbd832bc6426a5))
-
-feat: add timing (created_at/finished_at/duration_ms) to StreamRecord
-
-Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
-
-Agent-Logs-Url:
-  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/781f63ee-0c28-4c82-bcc1-73f004039b4d
-
-* fix: address review comments on StreamRecord timing fields
-
-- Remove dead-code guard in to_dict(): created_at is non-optional so the `if self.created_at else
-  None` branch was never reachable - Document created_at, finished_at, and duration_ms in
-  StreamRecord docstring - Rename test_finished_at_none_before_finish →
-  test_finished_at_none_initially to avoid confusion (the test called finish() internally)
-
----------
-
-Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
-
-Co-authored-by: shloimy wiesel <w.63071@gmail.com>
-
-- Auto-count streaming tokens in StreamRecord with optional tokenizer
-  ([`db3a352`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/db3a352480db0f9b732fb6f3da12fb0e6251494e))
-
-Closes #17
-
-- Add `reasoning_tokens`, `answer_tokens`, `prompt_tokens` fields to `StreamRecord` - Add
-  `total_output_tokens` and `total_tokens` computed properties - `write_text` and `write_reasoning`
-  now auto-increment token counts via configurable `count_func` (defaults to `len`, i.e. character
-  count) - Add `StreamContext(count_func=...)` parameter to swap in any `Callable[[str], int]` (e.g.
-  tiktoken, word count) - Add `ctx.set_usage(prompt_tokens, reasoning_tokens, answer_tokens)` to
-  override auto-counted values with exact LLM-reported numbers - Include all token fields in
-  `StreamRecord.to_dict()`
-
-
-## v0.2.0-a.4 (2026-03-23)
-
-### Features
-
-- Add `on_finish` callback for post-stream persistence
-  ([#24](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/24),
-  [`fcbb2fd`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/fcbb2fd9ceca1a0cd1083f4001bf918c8ef174f1))
-
-* Initial plan
-
-* feat: add on_finish callback for post-stream persistence
-
-Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
-
-Agent-Logs-Url:
-  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/5f2f939a-91ee-46f4-9d8e-5abc6ef8a02e
-
----------
-
-Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
-
-
-## v0.2.0-a.3 (2026-03-22)
-
-### Bug Fixes
-
-- Abort() emits proper abort event per v6 spec
-  ([`093862b`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/093862b6ce97c463a6248a31ac2a06760d0338d6))
-
-Add AbortEvent model (type: "abort", reason: str | None) and update ctx.abort() to accept an
-  optional reason and emit the event before the [DONE] sentinel. Backward-compatible: bare
-  ctx.abort() still works and omits the reason field from the wire output.
-
-Resolves: #13
-
-### Features
-
-- Add custom data parts and ctx.write_data() helper
-  ([`036fc74`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/036fc7446dd63df7bc49096ea207175bbce8766b))
-
-Add DataEvent model (dynamic data-{name} type), ctx.write_data() with name validation and transient
-  flag, DataPartRecord for collection, and data_parts list on StreamRecord with to_dict() support.
-  Transient parts are sent on the wire but not persisted to ctx.record.
-
-Resolves: #10
-
-- Add error event type and ctx.error() helper
-  ([`13836d4`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/13836d4ee7f0573a2c45069e8d191e20a8d9c5e0))
-
-Add ErrorEvent Pydantic model (type: "error", errorText: str), ctx.error(error_text) which emits the
-  event then terminates the stream, and exports ErrorEvent from the top-level package.
-
-Resolves: #8
-
-- Add file event type and ctx.write_file() helper
-  ([`d11d6ec`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/d11d6ec169a071a84c17a74ccac6e9d9748e70e7))
-
-Add FileEvent model (type: "file", url, mediaType), ctx.write_file() which auto-emits
-  start/start-step before the event, FileRecord for collection, and files list on StreamRecord with
-  to_dict() support.
-
-Resolves: #9
-
-- Add streaming tool input delta helpers
-  ([`45baa02`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/45baa0280257464aa9df375938d069bc573a2510))
-
-Add start_tool_input(), stream_tool_input_delta(), and finish_tool_input() to StreamContext.
-  start_tool_input emits tool-input-start and returns a ToolCallHandle; each stream_tool_input_delta
-  emits a tool-input-delta; finish_tool_input emits tool-input-available and updates the collected
-  ToolCallRecord with the final input dict. begin_tool_call() is unchanged.
-
-Resolves: #11
-
-
-## v0.2.0-a.2 (2026-03-22)
-
-### Features
-
-- Add typed custom_information support to StreamContext
-  ([#7](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/7),
-  [`f6e8da9`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/f6e8da9a5ba6226e1f1e5255db9b017ecdf9683e))
-
-* feat: add typed custom_information support to StreamContext
-
-Closes #6
-
-- StreamContext is now Generic[_InfoT] (bound to pydantic.BaseModel) - New `custom_information`
-  constructor parameter stores a read-only Pydantic model accessible via ctx.info throughout the
-  stream lifecycle - Useful for carrying request-scoped metadata (user_id, rate_limit, etc.) through
-  service layers without extra function arguments - 5 new tests; pyright passes with 0 errors
-
-* fix: correct docstring type and test organization for custom_information
-
-- Fix `info : _InfoT` → `info : _InfoT | None` in class Attributes docstring - Group
-  custom_information tests into TestCustomInformation class
-
-
-## v0.2.0-a.1 (2026-03-22)
-
-### Features
-
-- Add collect=True option to StreamContext for recording stream data
-  ([`a594acc`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/a594acc80a6529e7a54c1fe8b7d3fd78dfa9cee8))
-
-Adds an opt-in collect: bool = False parameter to StreamContext that accumulates all emitted content
-  (text, reasoning, tool calls, sources, step count, finish reason) into a StreamRecord accessible
-  via ctx.record. Useful for persisting conversation turns to a database after streaming.
-
-
-## v0.1.2-a.1 (2026-03-22)
 
 ### Bug Fixes
 
