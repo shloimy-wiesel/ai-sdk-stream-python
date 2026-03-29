@@ -42,9 +42,18 @@ Quickstart::
         )
 """
 
-from .context import StreamContext, ToolCallHandle
+from .collect import DataPartRecord as DataPartRecord
+from .collect import FileRecord as FileRecord
+from .collect import SourceRecord as SourceRecord
+from .collect import StreamRecord as StreamRecord
+from .collect import ToolCallRecord as ToolCallRecord
+from .context import OnFinishCallback, StreamContext, ToolCallHandle
 from .events import (
+    AbortEvent,
     BaseEvent,
+    DataEvent,
+    ErrorEvent,
+    FileEvent,
     FinishEvent,
     FinishStepEvent,
     ReasoningDeltaEvent,
@@ -64,12 +73,32 @@ from .events import (
     UIMessageStreamEvent,
 )
 from .state import StateStore
+from .types import (
+    ChatRequest,
+    DataUIPart,
+    FileUIPart,
+    MessagePart,
+    ReasoningUIPart,
+    SourceDocumentUIPart,
+    SourceUrlUIPart,
+    StepStartUIPart,
+    TextUIPart,
+    ToolUIPart,
+    UIMessage,
+)
 
 __all__ = [
     # Core
     "StreamContext",
     "ToolCallHandle",
+    "OnFinishCallback",
     "StateStore",
+    # Collection
+    "StreamRecord",
+    "ToolCallRecord",
+    "SourceRecord",
+    "FileRecord",
+    "DataPartRecord",
     # Base / union
     "BaseEvent",
     "UIMessageStreamEvent",
@@ -94,4 +123,23 @@ __all__ = [
     "ToolOutputErrorEvent",
     # Sources
     "SourceUrlEvent",
+    # Files
+    "FileEvent",
+    # Custom data parts
+    "DataEvent",
+    # Error / Abort
+    "ErrorEvent",
+    "AbortEvent",
+    # Incoming request types
+    "ChatRequest",
+    "UIMessage",
+    "MessagePart",
+    "TextUIPart",
+    "ReasoningUIPart",
+    "FileUIPart",
+    "SourceUrlUIPart",
+    "SourceDocumentUIPart",
+    "StepStartUIPart",
+    "DataUIPart",
+    "ToolUIPart",
 ]

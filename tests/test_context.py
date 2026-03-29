@@ -13,6 +13,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from pydantic import BaseModel
+
 from ai_sdk_stream_python import StreamContext
 from ai_sdk_stream_python.events import (
     StartEvent,
@@ -157,6 +159,64 @@ class TestReasoning:
 # ---------------------------------------------------------------------------
 
 
+class TestStreamingToolInput:
+    async def test_start_stream_finish_sequence(self):
+        """start_tool_input → stream_tool_input_delta* → finish_tool_input ordering."""
+
+        async def work(ctx):
+            handle = await ctx.start_tool_input("search")
+            await ctx.stream_tool_input_delta(handle.toolCallId, '{"q":')
+            await ctx.stream_tool_input_delta(handle.toolCallId, '"cats"}')
+            await ctx.finish_tool_input(handle.toolCallId, "search", {"q": "cats"})
+            await ctx.complete_tool_call(handle.toolCallId, ["cat1"])
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        ti_start = types.index("tool-input-start")
+        deltas = [i for i, t in enumerate(types) if t == "tool-input-delta"]
+        ti_avail = types.index("tool-input-available")
+        assert ti_start < deltas[0] < deltas[1] < ti_avail
+
+    async def test_delta_ids_match_start(self):
+        async def work(ctx):
+            handle = await ctx.start_tool_input("calc")
+            await ctx.stream_tool_input_delta(handle.toolCallId, '{"x": 1}')
+            await ctx.finish_tool_input(handle.toolCallId, "calc", {"x": 1})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        start = next(e for e in events if e["type"] == "tool-input-start")
+        delta = next(e for e in events if e["type"] == "tool-input-delta")
+        avail = next(e for e in events if e["type"] == "tool-input-available")
+        assert start["toolCallId"] == delta["toolCallId"] == avail["toolCallId"]
+
+    async def test_delta_carries_input_text(self):
+        async def work(ctx):
+            handle = await ctx.start_tool_input("fn")
+            await ctx.stream_tool_input_delta(handle.toolCallId, "chunk1")
+            await ctx.finish_tool_input(handle.toolCallId, "fn", {})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        delta = next(e for e in events if e["type"] == "tool-input-delta")
+        assert delta["inputTextDelta"] == "chunk1"
+
+    async def test_begin_tool_call_still_works(self):
+        """begin_tool_call() backward-compat: no deltas, input known upfront."""
+
+        async def work(ctx):
+            handle = await ctx.begin_tool_call("lookup", {"id": 1})
+            await ctx.complete_tool_call(handle.toolCallId, "result")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        assert "tool-input-start" in types
+        assert "tool-input-available" in types
+        assert "tool-input-delta" not in types
+
+
 class TestToolCalls:
     async def test_tool_call_complete(self):
         async def work(ctx):
@@ -279,6 +339,148 @@ class TestSources:
 
 
 # ---------------------------------------------------------------------------
+# Custom data parts
+# ---------------------------------------------------------------------------
+
+
+class TestWriteData:
+    async def test_write_data_emits_event(self):
+        async def work(ctx):
+            await ctx.write_data("weather", {"city": "SF", "temp": 72})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-weather")
+        assert data_ev["data"] == {"city": "SF", "temp": 72}
+
+    async def test_write_data_type_includes_name(self):
+        async def work(ctx):
+            await ctx.write_data("status", {"state": "loading"})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        assert any(e["type"] == "data-status" for e in events)
+
+    async def test_write_data_with_id(self):
+        async def work(ctx):
+            await ctx.write_data("progress", {"pct": 50}, id="prog-1")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-progress")
+        assert data_ev["id"] == "prog-1"
+
+    async def test_write_data_transient_omits_from_collection(self):
+        """Transient parts send the event but are not collected."""
+
+        async def work(ctx):
+            await ctx.write_data("ping", {"ts": 1}, transient=True)
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-ping")
+        assert data_ev["transient"] is True
+
+    async def test_write_data_non_transient_omits_transient_field(self):
+        async def work(ctx):
+            await ctx.write_data("info", {"x": 1})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-info")
+        assert "transient" not in data_ev
+
+    async def test_write_data_invalid_name_raises(self):
+        ctx = StreamContext()
+        await ctx.store.set("x", 1)  # start context
+        with pytest.raises(ValueError, match="Invalid data part name"):
+            await ctx.write_data("bad name!", {"x": 1})
+        await ctx.finish()
+
+    async def test_write_data_auto_emits_start(self):
+        async def work(ctx):
+            await ctx.write_data("info", {"x": 1})
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        assert events[0]["type"] == "start"
+
+    async def test_write_data_accepts_string(self):
+        async def work(ctx):
+            await ctx.write_data("chat-title", "My Chat Title")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-chat-title")
+        assert data_ev["data"] == "My Chat Title"
+
+    async def test_write_data_accepts_none(self):
+        async def work(ctx):
+            await ctx.write_data("finish", None)
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-finish")
+        assert data_ev["data"] is None
+
+    async def test_write_data_accepts_list(self):
+        async def work(ctx):
+            await ctx.write_data("tags", ["python", "ai"])
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-tags")
+        assert data_ev["data"] == ["python", "ai"]
+
+    async def test_write_data_accepts_number(self):
+        async def work(ctx):
+            await ctx.write_data("score", 42)
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        data_ev = next(e for e in events if e["type"] == "data-score")
+        assert data_ev["data"] == 42
+
+
+# ---------------------------------------------------------------------------
+# Files
+# ---------------------------------------------------------------------------
+
+
+class TestFiles:
+    async def test_write_file_emits_event(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/img.png", "image/png")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        file_ev = next(e for e in events if e["type"] == "file")
+        assert file_ev["url"] == "https://example.com/img.png"
+        assert file_ev["mediaType"] == "image/png"
+
+    async def test_write_file_auto_emits_step(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/doc.pdf", "application/pdf")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        assert "start-step" in types
+
+    async def test_multiple_files(self):
+        async def work(ctx):
+            await ctx.write_file("https://example.com/a.png", "image/png")
+            await ctx.write_file("https://example.com/b.jpg", "image/jpeg")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        file_evs = [e for e in events if e["type"] == "file"]
+        assert len(file_evs) == 2
+        assert file_evs[0]["url"] == "https://example.com/a.png"
+        assert file_evs[1]["url"] == "https://example.com/b.jpg"
+
+
+# ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
 
@@ -304,6 +506,73 @@ class TestEdgeCases:
         asyncio.create_task(work())
         events = await collect_stream(ctx)
         assert not any(e["type"] == "finish" for e in events)
+
+    async def test_abort_emits_abort_event(self):
+        """abort() must emit an abort event per the v6 spec."""
+
+        async def work(ctx):
+            await ctx.write_text("partial")
+            await ctx.abort()
+
+        events = await run_and_collect(work)
+        assert any(e["type"] == "abort" for e in events)
+        assert not any(e["type"] == "finish" for e in events)
+
+    async def test_abort_with_reason(self):
+        async def work(ctx):
+            await ctx.abort(reason="user cancelled")
+
+        events = await run_and_collect(work)
+        abort_ev = next(e for e in events if e["type"] == "abort")
+        assert abort_ev["reason"] == "user cancelled"
+
+    async def test_abort_without_reason_omits_field(self):
+        async def work(ctx):
+            await ctx.abort()
+
+        events = await run_and_collect(work)
+        abort_ev = next(e for e in events if e["type"] == "abort")
+        assert "reason" not in abort_ev
+
+    async def test_abort_is_idempotent(self):
+        async def work(ctx):
+            await ctx.abort("first")
+            await ctx.abort("second")  # no-op
+
+        events = await run_and_collect(work)
+        assert sum(1 for e in events if e["type"] == "abort") == 1
+
+    async def test_error_emits_error_event_and_terminates(self):
+        """ctx.error() emits an error event then [DONE] — no finish event."""
+
+        async def work(ctx):
+            await ctx.write_text("partial")
+            await ctx.error("something went wrong")
+
+        events = await run_and_collect(work)
+        error_ev = next(e for e in events if e["type"] == "error")
+        assert error_ev["errorText"] == "something went wrong"
+        assert not any(e["type"] == "finish" for e in events)
+
+    async def test_error_is_idempotent(self):
+        """Calling ctx.error() twice only emits one error event."""
+
+        async def work(ctx):
+            await ctx.error("first")
+            await ctx.error("second")  # no-op
+
+        events = await run_and_collect(work)
+        assert sum(1 for e in events if e["type"] == "error") == 1
+
+    async def test_error_auto_emits_start(self):
+        """ctx.error() without any prior writes still emits start first."""
+
+        async def work(ctx):
+            await ctx.error("oops")
+
+        events = await run_and_collect(work)
+        assert events[0]["type"] == "start"
+        assert any(e["type"] == "error" for e in events)
 
     async def test_message_id_propagated(self):
         async def work(ctx):
@@ -378,6 +647,393 @@ class TestStateStore:
         await db_service(ctx)
         greeting = await llm_service(ctx)
         assert greeting == "Hello Bob (pro)"
+
+
+# ---------------------------------------------------------------------------
+# custom_information
+# ---------------------------------------------------------------------------
+
+
+class _RequestInfo(BaseModel):
+    user_id: str
+    rate_limit: int
+
+
+class TestCustomInformation:
+    async def test_default_is_none(self):
+        """ctx.info is None when no custom_information is passed."""
+        ctx = StreamContext()
+        assert ctx.info is None
+
+    async def test_stored_and_accessible(self):
+        """ctx.info returns the exact Pydantic model passed at construction."""
+        info = _RequestInfo(user_id="u_42", rate_limit=100)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+        assert ctx.info is info
+        assert ctx.info is not None
+        assert ctx.info.user_id == "u_42"
+        assert ctx.info.rate_limit == 100
+
+    async def test_is_immutable(self):
+        """ctx.info has no setter — attempts to assign raise AttributeError."""
+        info = _RequestInfo(user_id="u_1", rate_limit=50)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+        with pytest.raises(AttributeError):
+            ctx.info = _RequestInfo(user_id="u_2", rate_limit=10)  # type: ignore[misc]
+
+    async def test_survives_full_stream(self):
+        """ctx.info remains accessible after the stream has been finished."""
+        info = _RequestInfo(user_id="u_99", rate_limit=200)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+
+        async def _work():
+            await ctx.write_text("hello")
+            await ctx.finish()
+
+        asyncio.create_task(_work())
+        await collect_stream(ctx)
+
+        assert ctx.info is not None
+        assert ctx.info.user_id == "u_99"
+
+    async def test_available_in_service_layer(self):
+        """Demonstrates the intended usage: info travels through service layers."""
+
+        async def _service(c: StreamContext[_RequestInfo]) -> str:
+            assert c.info is not None
+            return f"Processing for user {c.info.user_id}"
+
+        info = _RequestInfo(user_id="u_7", rate_limit=10)
+        ctx: StreamContext[_RequestInfo] = StreamContext(custom_information=info)
+        result = await _service(ctx)
+        assert result == "Processing for user u_7"
+
+
+# ---------------------------------------------------------------------------
+# on_finish callback
+# ---------------------------------------------------------------------------
+
+
+class TestOnFinish:
+    async def test_sync_callback_called_with_record(self):
+        """A sync on_finish callback receives the fully populated StreamRecord."""
+        received = []
+
+        async def work(ctx):
+            await ctx.write_text("hello")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=lambda rec: received.append(rec))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(received) == 1
+        assert received[0].text == "hello"
+        assert received[0].finish_reason == "stop"
+
+    async def test_async_callback_called_with_record(self):
+        """An async on_finish callback is awaited and receives the record."""
+        received = []
+
+        async def _on_finish(rec):
+            received.append(rec)
+
+        async def work(ctx):
+            await ctx.write_text("async cb")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=_on_finish)
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(received) == 1
+        assert received[0].text == "async cb"
+
+    async def test_on_finish_auto_enables_collect(self):
+        """Passing on_finish without collect=True still populates ctx.record."""
+        record_holder = []
+
+        async def work(ctx):
+            await ctx.write_text("captured")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=lambda rec: record_holder.append(rec))
+        assert ctx.record is not None, "record should be created when on_finish is set"
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert ctx.record is not None
+        assert ctx.record.text == "captured"
+
+    async def test_callback_exception_does_not_prevent_stream_termination(self):
+        """If the callback raises, the stream still terminates normally."""
+
+        def bad_callback(rec):
+            raise ValueError("db write failed")
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=bad_callback)
+        asyncio.create_task(work(ctx))
+        # collect_stream should complete without raising
+        events = await collect_stream(ctx)
+        assert any(e["type"] == "finish" for e in events)
+
+    async def test_async_callback_exception_swallowed(self):
+        """Async callback exception is also swallowed."""
+
+        async def bad_async_callback(rec):
+            raise RuntimeError("async failure")
+
+        async def work(ctx):
+            await ctx.write_text("test")
+            await ctx.finish()
+
+        ctx = StreamContext(on_finish=bad_async_callback)
+        asyncio.create_task(work(ctx))
+        events = await collect_stream(ctx)
+        assert any(e["type"] == "finish" for e in events)
+
+    async def test_on_finish_parameter_on_finish_method(self):
+        """on_finish passed directly to finish() is called after the stream.
+
+        When on_finish is provided only at finish()-call time (not construction),
+        collection wasn't enabled during the stream, so the record holds only
+        the finish_reason — text already emitted won't be captured.
+        """
+        received = []
+
+        async def work(ctx):
+            await ctx.write_text("per-call")
+            await ctx.finish(on_finish=lambda rec: received.append(rec))
+
+        ctx = StreamContext()
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(received) == 1
+        # Record was created lazily inside finish(); text was not collected.
+        assert received[0].finish_reason == "stop"
+        assert received[0].text == ""
+
+    async def test_finish_on_finish_takes_priority_over_constructor(self):
+        """on_finish on finish() overrides the constructor-level callback."""
+        constructor_calls = []
+        finish_calls = []
+
+        async def work(ctx):
+            await ctx.finish(on_finish=lambda rec: finish_calls.append(rec))
+
+        ctx = StreamContext(on_finish=lambda rec: constructor_calls.append(rec))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(finish_calls) == 1
+        assert len(constructor_calls) == 0
+
+    async def test_on_finish_called_only_once_on_repeated_finish(self):
+        """Calling finish() twice must not invoke the callback twice."""
+        calls = []
+
+        async def work(ctx):
+            await ctx.finish()
+            await ctx.finish()  # no-op
+
+        ctx = StreamContext(on_finish=lambda rec: calls.append(1))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert len(calls) == 1
+
+    async def test_on_finish_record_contains_finish_reason(self):
+        """Record passed to callback has the finish_reason populated."""
+        received = []
+
+        async def work(ctx):
+            await ctx.finish(finish_reason="length")
+
+        ctx = StreamContext(on_finish=lambda rec: received.append(rec))
+        asyncio.create_task(work(ctx))
+        await collect_stream(ctx)
+
+        assert received[0].finish_reason == "length"
+
+
+# ---------------------------------------------------------------------------
+# start_metadata
+# ---------------------------------------------------------------------------
+
+
+class TestStartMetadata:
+    async def test_start_metadata_included_in_start_event(self):
+        """start_metadata is forwarded to the start event's messageMetadata field."""
+        metadata = {"createdAt": 1711000000, "model": "gpt-4o"}
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        events = await run_and_collect(work, start_metadata=metadata)
+        start_event = next(e for e in events if e["type"] == "start")
+        assert start_event["messageMetadata"] == metadata
+
+    async def test_no_start_metadata_omits_field(self):
+        """When start_metadata is not provided, messageMetadata is absent."""
+
+        async def work(ctx):
+            await ctx.write_text("hi")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        start_event = next(e for e in events if e["type"] == "start")
+        assert (
+            "messageMetadata" not in start_event
+            or start_event.get("messageMetadata") is None
+        )
+
+    async def test_start_metadata_none_explicit(self):
+        """Passing start_metadata=None behaves the same as omitting it."""
+
+        async def work(ctx):
+            await ctx.finish()
+
+        events = await run_and_collect(work, start_metadata=None)
+        start_event = next(e for e in events if e["type"] == "start")
+        assert start_event.get("messageMetadata") is None
+
+    async def test_start_metadata_emitted_once(self):
+        """Even with multiple writes, the start event (with metadata) is only emitted once."""
+        metadata = {"chatType": "simple"}
+
+        async def work(ctx):
+            await ctx.write_text("a")
+            await ctx.write_text("b")
+            await ctx.finish()
+
+        events = await run_and_collect(work, start_metadata=metadata)
+        start_events = [e for e in events if e["type"] == "start"]
+        assert len(start_events) == 1
+        assert start_events[0]["messageMetadata"] == metadata
+
+
+# ---------------------------------------------------------------------------
+# ctx.run() — safe task runner
+# ---------------------------------------------------------------------------
+
+
+class TestRun:
+    async def test_normal_completion(self):
+        """run() works like create_task — stream finishes normally."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.write_text("hello")
+            await c.finish()
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        types = [e["type"] for e in events]
+        assert "text-delta" in types
+        assert "finish" in types
+
+    async def test_auto_finish_when_not_called(self):
+        """If the work coroutine returns without finish(), run() calls it."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.write_text("hi")
+            # no finish()
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        types = [e["type"] for e in events]
+        assert "finish" in types
+
+    async def test_exception_emits_error_event(self):
+        """If work raises, an error event is emitted instead of hanging."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.write_text("partial")
+            raise RuntimeError("oops")
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        types = [e["type"] for e in events]
+        assert "error" in types
+        assert "finish" not in types
+
+    async def test_exception_error_message(self):
+        """The error event carries the exception message."""
+        ctx = StreamContext()
+
+        async def work(c):
+            raise ValueError("something went wrong")
+
+        await ctx.run(work)
+        events = await collect_stream(ctx)
+        error_events = [e for e in events if e["type"] == "error"]
+        assert len(error_events) == 1
+        assert error_events[0]["errorText"] == "something went wrong"
+
+    async def test_exception_preserves_written_text(self):
+        """Text written before the crash is still in the stream."""
+        ctx = StreamContext(collect=True)
+
+        async def work(c):
+            await c.write_text("partial output")
+            raise RuntimeError("boom")
+
+        await ctx.run(work)
+        await collect_stream(ctx)
+        assert ctx.record is not None
+        assert ctx.record.text == "partial output"
+
+    async def test_stream_does_not_hang_on_exception(self):
+        """ctx.stream() must not block forever when work raises."""
+        ctx = StreamContext()
+
+        async def work(c):
+            raise RuntimeError("crash")
+
+        await ctx.run(work)
+        # If this doesn't hang, the test passes
+        events = await asyncio.wait_for(collect_stream(ctx), timeout=2.0)
+        assert any(e["type"] == "error" for e in events)
+
+    async def test_returns_task(self):
+        """run() returns an asyncio.Task."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.finish()
+
+        task = await ctx.run(work)
+        assert isinstance(task, asyncio.Task)
+        await collect_stream(ctx)
+
+    async def test_already_finished_ctx_no_extra_finish(self):
+        """If work calls finish() itself, run() does not double-finish."""
+        ctx = StreamContext()
+        finish_count = 0
+        original_finish = ctx.finish
+
+        async def counting_finish(**kwargs):
+            nonlocal finish_count
+            finish_count += 1
+            await original_finish(**kwargs)
+
+        ctx.finish = counting_finish  # type: ignore[method-assign]
+
+        async def work(c):
+            await c.write_text("done")
+            await c.finish()
+
+        await ctx.run(work)
+        await collect_stream(ctx)
+        assert finish_count == 1
 
 
 # ---------------------------------------------------------------------------

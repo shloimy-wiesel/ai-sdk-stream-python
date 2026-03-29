@@ -97,13 +97,20 @@ async def search_documents(
 
     # Simple substring filter (real impl would use vector search etc.)
     q = query.lower()
-    results = [doc for doc in _DOCUMENTS if q in doc["title"].lower() or q in doc["snippet"].lower()]
+    results = [
+        doc
+        for doc in _DOCUMENTS
+        if q in doc["title"].lower() or q in doc["snippet"].lower()
+    ]
     if not results:
         results = _DOCUMENTS[:2]  # always return something for the demo
 
     await ctx.complete_tool_call(
         handle.toolCallId,
-        {"count": len(results), "results": [{"id": d["id"], "title": d["title"]} for d in results]},
+        {
+            "count": len(results),
+            "results": [{"id": d["id"], "title": d["title"]} for d in results],
+        },
     )
 
     # Also write source-url events so the frontend can show citations
