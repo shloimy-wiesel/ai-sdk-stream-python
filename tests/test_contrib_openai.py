@@ -414,6 +414,77 @@ class TestToolCallsNonStreaming:
         avail = next(e for e in events if e["type"] == "tool-input-available")
         assert avail["input"] == {}
 
+    async def test_repeated_tool_name_not_duplicated(self):
+        """Name sent on multiple chunks should not be concatenated."""
+        chunks = [
+            _chunk(
+                [
+                    _choice(
+                        _delta(
+                            tool_calls=[
+                                _tc(
+                                    0,
+                                    id="call_1",
+                                    function=_fn(name="search", arguments=""),
+                                )
+                            ]
+                        )
+                    )
+                ]
+            ),
+            # Second chunk repeats the name
+            _chunk(
+                [
+                    _choice(
+                        _delta(
+                            tool_calls=[
+                                _tc(0, function=_fn(name="search", arguments='{"q":'))
+                            ]
+                        )
+                    )
+                ]
+            ),
+            _chunk(
+                [
+                    _choice(
+                        _delta(tool_calls=[_tc(0, function=_fn(arguments='"x"}'))])
+                    )
+                ]
+            ),
+            _chunk([_choice(_delta(), finish_reason="tool_calls")]),
+        ]
+        result, events = await run_consume(chunks)
+        assert result.tool_calls[0]["name"] == "search"  # not "searchsearch"
+        avail = next(e for e in events if e["type"] == "tool-input-available")
+        assert avail["toolName"] == "search"
+
+    async def test_missing_id_uses_generated_id(self):
+        """When no tc.id is provided, ConsumeResult should use the generated ID."""
+        chunks = [
+            _chunk(
+                [
+                    _choice(
+                        _delta(
+                            tool_calls=[
+                                _tc(
+                                    0,
+                                    # No id provided
+                                    function=_fn(name="fn", arguments="{}"),
+                                )
+                            ]
+                        )
+                    )
+                ]
+            ),
+            _chunk([_choice(_delta(), finish_reason="tool_calls")]),
+        ]
+        result, events = await run_consume(chunks)
+        # The result id should match the id emitted in the SSE events
+        avail = next(e for e in events if e["type"] == "tool-input-available")
+        assert result.tool_calls[0]["id"] == avail["toolCallId"]
+        # Should be a non-empty UUID, not an empty string
+        assert result.tool_calls[0]["id"] != ""
+
 
 # ---------------------------------------------------------------------------
 # Tool calls — streaming (stream_tool_deltas=True)
@@ -512,6 +583,33 @@ class TestToolCallsStreaming:
         assert "tool-input-start" in types
         assert "tool-input-available" in types
         assert "tool-input-delta" not in types
+
+    async def test_streaming_missing_id_uses_generated_id(self):
+        """When no tc.id is provided in streaming mode, ConsumeResult should use the generated ID."""
+        chunks = [
+            _chunk(
+                [
+                    _choice(
+                        _delta(
+                            tool_calls=[
+                                _tc(0, function=_fn(name="fn", arguments=""))
+                            ]
+                        )
+                    )
+                ]
+            ),
+            _chunk(
+                [_choice(_delta(tool_calls=[_tc(0, function=_fn(arguments="{}"))]))]
+            ),
+            _chunk([_choice(_delta(), finish_reason="tool_calls")]),
+        ]
+        result, events = await run_consume(chunks, stream_tool_deltas=True)
+        start = next(e for e in events if e["type"] == "tool-input-start")
+        avail = next(e for e in events if e["type"] == "tool-input-available")
+        # Result ID should match emitted events and not be empty
+        assert result.tool_calls[0]["id"] == start["toolCallId"]
+        assert result.tool_calls[0]["id"] == avail["toolCallId"]
+        assert result.tool_calls[0]["id"] != ""
 
 
 # ---------------------------------------------------------------------------

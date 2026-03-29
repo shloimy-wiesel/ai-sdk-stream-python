@@ -361,8 +361,8 @@ async def consume_openai_stream(
                 continue
 
             fn_name = getattr(fn, "name", None)
-            if fn_name:
-                buf["name"] += fn_name
+            if fn_name and not buf["name"]:
+                buf["name"] = fn_name
 
             fn_args = getattr(fn, "arguments", None)
             if not fn_args:
@@ -399,24 +399,27 @@ async def consume_openai_stream(
                     buf["name"],
                     parsed_input,
                 )
+                actual_id = buf["handle"].toolCallId
             else:
                 # No arguments were streamed (zero-arg tool or empty chunks);
                 # fall back to the non-streaming path.
-                await ctx.begin_tool_call(
+                handle = await ctx.begin_tool_call(
                     buf["name"],
                     parsed_input,
                     tool_call_id=buf["id"] or None,
                 )
+                actual_id = handle.toolCallId
         else:
-            await ctx.begin_tool_call(
+            handle = await ctx.begin_tool_call(
                 buf["name"],
                 parsed_input,
                 tool_call_id=buf["id"] or None,
             )
+            actual_id = handle.toolCallId
 
         result_tool_calls.append(
             {
-                "id": buf["id"],
+                "id": actual_id,
                 "name": buf["name"],
                 "arguments": buf["arguments"],
             }
