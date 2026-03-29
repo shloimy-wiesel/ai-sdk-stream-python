@@ -445,11 +445,7 @@ class TestToolCallsNonStreaming:
                 ]
             ),
             _chunk(
-                [
-                    _choice(
-                        _delta(tool_calls=[_tc(0, function=_fn(arguments='"x"}'))])
-                    )
-                ]
+                [_choice(_delta(tool_calls=[_tc(0, function=_fn(arguments='"x"}'))]))]
             ),
             _chunk([_choice(_delta(), finish_reason="tool_calls")]),
         ]
@@ -591,9 +587,7 @@ class TestToolCallsStreaming:
                 [
                     _choice(
                         _delta(
-                            tool_calls=[
-                                _tc(0, function=_fn(name="fn", arguments=""))
-                            ]
+                            tool_calls=[_tc(0, function=_fn(name="fn", arguments=""))]
                         )
                     )
                 ]
