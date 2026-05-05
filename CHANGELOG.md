@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.2.2 (2026-05-05)
+
+### Bug Fixes
+
+- Respect context-level collect flag in _should_collect
+  ([`b59668c`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/b59668cb6748f7bd8d2dd2a11713072b4c2dfe98))
+
+
 ## v0.2.1 (2026-05-05)
 
 ### Bug Fixes
