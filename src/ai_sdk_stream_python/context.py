@@ -163,6 +163,7 @@ class StreamContext(Generic[_InfoT]):
         self._finished: bool = False
 
         # Collection — auto-enabled when on_finish is provided
+        self._collect: bool = collect or on_finish is not None
         self._record: StreamRecord | None = (
             StreamRecord(message_id=self._message_id)
             if (collect or on_finish is not None)
@@ -230,8 +231,8 @@ class StreamContext(Generic[_InfoT]):
             )
         if collect is False:
             return False
-        # collect is None → follow context setting
-        return self._record is not None
+        # collect is None → follow context-level collect flag
+        return self._collect and self._record is not None
 
     # ── Low-level sync emit ────────────────────────────────────────────────────
 
