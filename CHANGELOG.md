@@ -1,6 +1,14 @@
 # CHANGELOG
 
 
+## v0.2.1 (2026-05-05)
+
+### Bug Fixes
+
+- Update pydantic dependency version to 2.0.0
+  ([`b545f9d`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/b545f9df424e6954a6e859d101d4fc5fc8b12a8f))
+
+
 ## v0.2.0 (2026-03-29)
 
 ### Features
