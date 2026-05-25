@@ -164,7 +164,7 @@ class StreamContext(Generic[_InfoT]):
             tuple(store_exclude) if store_exclude else ()
         )
 
-        # Behaviour flags
+        # Behavior flags
         self._tool_calls_in_reasoning: bool = tool_calls_in_reasoning
 
         # Lifecycle state
@@ -207,7 +207,15 @@ class StreamContext(Generic[_InfoT]):
 
     @property
     def tool_calls_in_reasoning(self) -> bool:
-        """Whether tool calls are emitted without closing the reasoning block."""
+        """Whether tool calls are emitted without closing the reasoning block.
+
+        When ``True``, :meth:`begin_tool_call` and :meth:`start_tool_input`
+        skip the automatic ``_ensure_reasoning_closed()`` call, so tool events
+        can be interleaved inside an open reasoning block.
+
+        Note: :meth:`new_step` and :meth:`finish` still force-close any open
+        reasoning block regardless of this flag.
+        """
         return self._tool_calls_in_reasoning
 
     @property
