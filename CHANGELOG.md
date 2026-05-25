@@ -1,6 +1,20 @@
 # CHANGELOG
 
 
+## v0.3.0 (2026-05-25)
+
+### Features
+
+- Add stream_exclude and store_exclude parameters to StreamContext
+  ([#47](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/47),
+  [`a87b743`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/a87b743cf609018e64004303551346199fade325))
+
+feat: add stream_exclude and store_exclude parameters to StreamContext
+
+Agent-Logs-Url:
+  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/ed622073-4b0a-4004-a3d8-eb53d3363f9d
+
+
 ## v0.2.2 (2026-05-05)
 
 ### Bug Fixes
