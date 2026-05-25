@@ -149,6 +149,7 @@ class StreamContext(Generic[_InfoT]):
         start_metadata: dict[str, Any] | None = None,
         stream_exclude: list[str] | None = None,
         store_exclude: list[str] | None = None,
+        tool_calls_in_reasoning: bool = False,
     ) -> None:
         self._message_id: str = message_id or str(uuid.uuid4())
         self._queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
@@ -162,6 +163,9 @@ class StreamContext(Generic[_InfoT]):
         self._store_exclude: tuple[str, ...] = (
             tuple(store_exclude) if store_exclude else ()
         )
+
+        # Behaviour flags
+        self._tool_calls_in_reasoning: bool = tool_calls_in_reasoning
 
         # Lifecycle state
         self._started: bool = False
@@ -200,6 +204,11 @@ class StreamContext(Generic[_InfoT]):
     @property
     def is_finished(self) -> bool:
         return self._finished
+
+    @property
+    def tool_calls_in_reasoning(self) -> bool:
+        """Whether tool calls are emitted without closing the reasoning block."""
+        return self._tool_calls_in_reasoning
 
     @property
     def info(self) -> _InfoT | None:
@@ -394,7 +403,8 @@ class StreamContext(Generic[_InfoT]):
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
-        await self._ensure_reasoning_closed()
+        if not self._tool_calls_in_reasoning:
+            await self._ensure_reasoning_closed()
         tcid = tool_call_id or str(uuid.uuid4())
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
         self._queue.put_nowait(
@@ -428,7 +438,8 @@ class StreamContext(Generic[_InfoT]):
         """
         await self._ensure_step_open()
         await self._ensure_text_closed()
-        await self._ensure_reasoning_closed()
+        if not self._tool_calls_in_reasoning:
+            await self._ensure_reasoning_closed()
         tcid = tool_call_id or str(uuid.uuid4())
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
         if self._should_collect(collect) and self._record is not None:

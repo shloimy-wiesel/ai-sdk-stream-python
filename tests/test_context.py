@@ -1037,6 +1037,131 @@ class TestRun:
 
 
 # ---------------------------------------------------------------------------
+# tool_calls_in_reasoning flag
+# ---------------------------------------------------------------------------
+
+
+class TestToolCallsInReasoning:
+    async def test_default_closes_reasoning_before_tool_call(self):
+        """Default behavior: reasoning is closed before begin_tool_call."""
+
+        async def work(ctx):
+            await ctx.write_reasoning("thinking...")
+            handle = await ctx.begin_tool_call("search", {"q": "test"})
+            await ctx.complete_tool_call(handle.toolCallId, "result")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        # reasoning-end should appear before tool-input-start
+        reasoning_end_idx = types.index("reasoning-end")
+        tool_input_start_idx = types.index("tool-input-start")
+        assert reasoning_end_idx < tool_input_start_idx
+
+    async def test_flag_keeps_reasoning_open_during_begin_tool_call(self):
+        """With tool_calls_in_reasoning=True, reasoning stays open."""
+
+        async def work(ctx):
+            await ctx.write_reasoning("thinking...")
+            handle = await ctx.begin_tool_call("search", {"q": "test"})
+            await ctx.complete_tool_call(handle.toolCallId, "result")
+            await ctx.write_reasoning("more thinking")
+            await ctx.finish()
+
+        events = await run_and_collect(work, tool_calls_in_reasoning=True)
+        types = [e["type"] for e in events]
+        # reasoning-end should NOT appear before tool-input-start
+        tool_input_start_idx = types.index("tool-input-start")
+        # There should be no reasoning-end before the tool call
+        reasoning_end_indices = [i for i, t in enumerate(types) if t == "reasoning-end"]
+        assert all(idx > tool_input_start_idx for idx in reasoning_end_indices)
+
+    async def test_flag_keeps_reasoning_open_during_start_tool_input(self):
+        """With tool_calls_in_reasoning=True, start_tool_input keeps reasoning open."""
+
+        async def work(ctx):
+            await ctx.write_reasoning("I need to look this up")
+            await ctx.start_tool_input("search", tool_call_id="tc1")
+            await ctx.stream_tool_input_delta("tc1", '{"q":')
+            await ctx.stream_tool_input_delta("tc1", '"test"}')
+            await ctx.finish_tool_input("tc1", "search", {"q": "test"})
+            await ctx.complete_tool_call("tc1", "result")
+            await ctx.write_reasoning("Got the result")
+            await ctx.finish()
+
+        events = await run_and_collect(work, tool_calls_in_reasoning=True)
+        types = [e["type"] for e in events]
+        tool_input_start_idx = types.index("tool-input-start")
+        # No reasoning-end before tool-input-start
+        reasoning_end_indices = [i for i, t in enumerate(types) if t == "reasoning-end"]
+        assert all(idx > tool_input_start_idx for idx in reasoning_end_indices)
+
+    async def test_finish_closes_reasoning_regardless_of_flag(self):
+        """finish() must always close the reasoning block even with the flag."""
+
+        async def work(ctx):
+            await ctx.write_reasoning("thinking...")
+            await ctx.finish()
+
+        events = await run_and_collect(work, tool_calls_in_reasoning=True)
+        types = [e["type"] for e in events]
+        assert "reasoning-end" in types
+
+    async def test_new_step_closes_reasoning_regardless_of_flag(self):
+        """new_step() must always close the reasoning block even with the flag."""
+
+        async def work(ctx):
+            await ctx.write_reasoning("thinking in step 1")
+            await ctx.new_step()
+            await ctx.write_text("step 2")
+            await ctx.finish()
+
+        events = await run_and_collect(work, tool_calls_in_reasoning=True)
+        types = [e["type"] for e in events]
+        # reasoning-end should appear (step boundary forces close)
+        assert "reasoning-end" in types
+
+    async def test_property_accessor(self):
+        """The tool_calls_in_reasoning property returns the configured value."""
+        ctx_default = StreamContext()
+        assert ctx_default.tool_calls_in_reasoning is False
+
+        ctx_enabled = StreamContext(tool_calls_in_reasoning=True)
+        assert ctx_enabled.tool_calls_in_reasoning is True
+
+    async def test_full_interleaved_event_order(self):
+        """Verify the full expected event order from the issue description."""
+
+        async def work(ctx):
+            await ctx.write_reasoning("I need to check the weather…")
+            handle = await ctx.begin_tool_call("get_weather", {"city": "NYC"})
+            await ctx.complete_tool_call(handle.toolCallId, {"temp": 72})
+            await ctx.write_reasoning("The weather is 72°F, so I'll…")
+            await ctx.write_text("The weather in NYC is 72°F.")
+            await ctx.finish()
+
+        events = await run_and_collect(work, tool_calls_in_reasoning=True)
+        types = [e["type"] for e in events]
+        expected = [
+            "start",
+            "start-step",
+            "reasoning-start",
+            "reasoning-delta",
+            "tool-input-start",
+            "tool-input-available",
+            "tool-output-available",
+            "reasoning-delta",
+            "reasoning-end",
+            "text-start",
+            "text-delta",
+            "text-end",
+            "finish-step",
+            "finish",
+        ]
+        assert types == expected
+
+
+# ---------------------------------------------------------------------------
 # pytest-asyncio config
 # ---------------------------------------------------------------------------
 
