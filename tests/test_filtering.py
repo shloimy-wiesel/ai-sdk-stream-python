@@ -9,12 +9,9 @@ import json
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from ai_sdk_stream_python import StreamContext
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -269,7 +266,9 @@ async def test_empty_list_no_filtering():
 
 async def test_string_mid_delta():
     """Filter string appearing in the middle of a delta."""
-    ctx = StreamContext(stream_exclude=["SECRET"], collect=True, store_exclude=["SECRET"])
+    ctx = StreamContext(
+        stream_exclude=["SECRET"], collect=True, store_exclude=["SECRET"]
+    )
 
     async def _work(ctx: StreamContext) -> None:
         await ctx.write_text("before SECRET after")
