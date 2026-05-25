@@ -147,6 +147,8 @@ class StreamContext(Generic[_InfoT]):
         custom_information: _InfoT | None = None,
         on_finish: OnFinishCallback | None = None,
         start_metadata: dict[str, Any] | None = None,
+        stream_exclude: list[str] | None = None,
+        store_exclude: list[str] | None = None,
     ) -> None:
         self._message_id: str = message_id or str(uuid.uuid4())
         self._queue: asyncio.Queue[BaseEvent | None] = asyncio.Queue()
@@ -154,6 +156,12 @@ class StreamContext(Generic[_InfoT]):
         self._info: _InfoT | None = custom_information
         self._on_finish: OnFinishCallback | None = on_finish
         self._start_metadata: dict[str, Any] | None = start_metadata
+        self._stream_exclude: tuple[str, ...] = (
+            tuple(stream_exclude) if stream_exclude else ()
+        )
+        self._store_exclude: tuple[str, ...] = (
+            tuple(store_exclude) if store_exclude else ()
+        )
 
         # Lifecycle state
         self._started: bool = False
@@ -300,15 +308,25 @@ class StreamContext(Generic[_InfoT]):
         recording it in ``ctx.record``.  Passing ``collect=True`` when the
         context was created with ``collect=False`` raises ``RuntimeError``.
         """
-        await self._ensure_step_open()
-        await self._ensure_reasoning_closed()
-        if self._text_id is None:
-            self._text_id = str(uuid.uuid4())
-            self._queue.put_nowait(TextStartEvent(id=self._text_id))
-        self._queue.put_nowait(TextDeltaEvent(id=self._text_id, delta=delta))
-        if self._should_collect(collect) and self._record is not None:
-            self._record.text += delta
-            self._record.answer_tokens += self._count(delta)
+        stream_delta = delta
+        for s in self._stream_exclude:
+            stream_delta = stream_delta.replace(s, "")
+
+        store_delta = delta
+        for s in self._store_exclude:
+            store_delta = store_delta.replace(s, "")
+
+        if stream_delta:
+            await self._ensure_step_open()
+            await self._ensure_reasoning_closed()
+            if self._text_id is None:
+                self._text_id = str(uuid.uuid4())
+                self._queue.put_nowait(TextStartEvent(id=self._text_id))
+            self._queue.put_nowait(TextDeltaEvent(id=self._text_id, delta=stream_delta))
+
+        if self._should_collect(collect) and self._record is not None and store_delta:
+            self._record.text += store_delta
+            self._record.answer_tokens += self._count(store_delta)
 
     async def write_reasoning(self, delta: str, *, collect: bool | None = None) -> None:
         """
@@ -321,15 +339,27 @@ class StreamContext(Generic[_InfoT]):
         recording it in ``ctx.record``.  Passing ``collect=True`` when the
         context was created with ``collect=False`` raises ``RuntimeError``.
         """
-        await self._ensure_step_open()
-        await self._ensure_text_closed()
-        if self._reasoning_id is None:
-            self._reasoning_id = str(uuid.uuid4())
-            self._queue.put_nowait(ReasoningStartEvent(id=self._reasoning_id))
-        self._queue.put_nowait(ReasoningDeltaEvent(id=self._reasoning_id, delta=delta))
-        if self._should_collect(collect) and self._record is not None:
-            self._record.reasoning += delta
-            self._record.reasoning_tokens += self._count(delta)
+        stream_delta = delta
+        for s in self._stream_exclude:
+            stream_delta = stream_delta.replace(s, "")
+
+        store_delta = delta
+        for s in self._store_exclude:
+            store_delta = store_delta.replace(s, "")
+
+        if stream_delta:
+            await self._ensure_step_open()
+            await self._ensure_text_closed()
+            if self._reasoning_id is None:
+                self._reasoning_id = str(uuid.uuid4())
+                self._queue.put_nowait(ReasoningStartEvent(id=self._reasoning_id))
+            self._queue.put_nowait(
+                ReasoningDeltaEvent(id=self._reasoning_id, delta=stream_delta)
+            )
+
+        if self._should_collect(collect) and self._record is not None and store_delta:
+            self._record.reasoning += store_delta
+            self._record.reasoning_tokens += self._count(store_delta)
 
     async def new_step(self) -> None:
         """
