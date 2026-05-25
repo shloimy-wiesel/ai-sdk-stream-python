@@ -1,6 +1,29 @@
 # CHANGELOG
 
 
+## v0.4.0 (2026-05-25)
+
+### Features
+
+- Add `tool_calls_in_reasoning` option to StreamContext
+  ([#49](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/49),
+  [`d37eb4c`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/d37eb4cb3c5ba4444c70e9a99b6466acf01dbe47))
+
+feat: add tool_calls_in_reasoning option to StreamContext
+
+When enabled, begin_tool_call and start_tool_input skip closing the reasoning block, allowing tool
+  calls to be emitted inline within reasoning for frontends that support interleaved rendering.
+
+Agent-Logs-Url:
+  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/5576925b-99a1-4b5e-8f28-bd20be5b267b
+
+---------
+
+Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+
+Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
+
+
 ## v0.3.0 (2026-05-25)
 
 ### Features
