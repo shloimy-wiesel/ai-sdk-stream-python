@@ -18,7 +18,6 @@ Quickstart::
     from fastapi import FastAPI
     from fastapi.responses import StreamingResponse
     from ai_sdk_stream_python import StreamContext
-    import asyncio
 
     app = FastAPI()
 
@@ -27,14 +26,11 @@ Quickstart::
     async def chat():
         ctx = StreamContext()
 
-        async def _work():
-            try:
-                await ctx.write_text("Hello ")
-                await ctx.write_text("world!")
-            finally:
-                await ctx.finish()
+        async def _work(c: StreamContext) -> None:
+            await c.write_text("Hello ")
+            await c.write_text("world!")
 
-        asyncio.create_task(_work())
+        await ctx.run(_work)
         return StreamingResponse(
             ctx.stream(),
             media_type="text/event-stream",

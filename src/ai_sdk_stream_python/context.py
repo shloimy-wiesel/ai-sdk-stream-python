@@ -34,15 +34,12 @@ Usage example (FastAPI)::
     async def chat(request: ChatRequest):
         ctx = StreamContext()
 
-        async def _work():
-            try:
-                await ctx.store.set("query", request.message)
-                async for chunk in my_llm.stream(request.message):
-                    await ctx.write_text(chunk)
-            finally:
-                await ctx.finish()
+        async def _work(c: StreamContext) -> None:
+            await c.store.set("query", request.message)
+            async for chunk in my_llm.stream(request.message):
+                await c.write_text(chunk)
 
-        asyncio.create_task(_work())
+        await ctx.run(_work)
         return StreamingResponse(
             ctx.stream(),
             media_type="text/event-stream",
