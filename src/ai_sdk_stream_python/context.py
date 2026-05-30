@@ -170,6 +170,7 @@ class StreamContext(Generic[_InfoT]):
         self._text_id: str | None = None
         self._reasoning_id: str | None = None
         self._finished: bool = False
+        self._run_called: bool = False
 
         # Collection — auto-enabled when on_finish is provided
         self._collect: bool = collect or on_finish is not None
@@ -733,6 +734,13 @@ class StreamContext(Generic[_InfoT]):
                     headers=ctx.response_headers,
                 )
         """
+
+        if self._run_called:
+            raise RuntimeError(
+                "ctx.run() has already been called on this StreamContext;"
+                " create a new StreamContext per request"
+            )
+        self._run_called = True
 
         async def _safe() -> None:
             try:
