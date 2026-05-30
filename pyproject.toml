@@ -7,10 +7,39 @@ authors = [
     { name = "Shloimy Wiesel" }
 ]
 requires-python = ">=3.10,<3.13"
+keywords = [
+    "ai-sdk",
+    "vercel",
+    "streaming",
+    "sse",
+    "fastapi",
+    "llm",
+    "openai",
+    "chatbot",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Framework :: FastAPI",
+    "Typing :: Typed",
+]
 dependencies = [
     "fastapi>=0.128.8",
-    "pydantic>=2.12.5",
+    "pydantic>=2.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/shloimy-wiesel/ai-sdk-stream-python"
+Repository = "https://github.com/shloimy-wiesel/ai-sdk-stream-python"
+"Bug Tracker" = "https://github.com/shloimy-wiesel/ai-sdk-stream-python/issues"
+Changelog = "https://github.com/shloimy-wiesel/ai-sdk-stream-python/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]

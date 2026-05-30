@@ -1,7 +1,102 @@
 # CHANGELOG
 
 
-## v0.1.2-b.1 (2026-03-22)
+## v0.4.0 (2026-05-25)
+
+### Features
+
+- Add `tool_calls_in_reasoning` option to StreamContext
+  ([#49](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/49),
+  [`d37eb4c`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/d37eb4cb3c5ba4444c70e9a99b6466acf01dbe47))
+
+feat: add tool_calls_in_reasoning option to StreamContext
+
+When enabled, begin_tool_call and start_tool_input skip closing the reasoning block, allowing tool
+  calls to be emitted inline within reasoning for frontends that support interleaved rendering.
+
+Agent-Logs-Url:
+  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/5576925b-99a1-4b5e-8f28-bd20be5b267b
+
+---------
+
+Co-authored-by: copilot-swe-agent[bot] <198982749+Copilot@users.noreply.github.com>
+
+Co-authored-by: shloimy-wiesel <144027408+shloimy-wiesel@users.noreply.github.com>
+
+
+## v0.3.0 (2026-05-25)
+
+### Features
+
+- Add stream_exclude and store_exclude parameters to StreamContext
+  ([#47](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/47),
+  [`a87b743`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/a87b743cf609018e64004303551346199fade325))
+
+feat: add stream_exclude and store_exclude parameters to StreamContext
+
+Agent-Logs-Url:
+  https://github.com/shloimy-wiesel/ai-sdk-stream-python/sessions/ed622073-4b0a-4004-a3d8-eb53d3363f9d
+
+
+## v0.2.2 (2026-05-05)
+
+### Bug Fixes
+
+- Respect context-level collect flag in _should_collect
+  ([`b59668c`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/b59668cb6748f7bd8d2dd2a11713072b4c2dfe98))
+
+
+## v0.2.1 (2026-05-05)
+
+### Bug Fixes
+
+- Update pydantic dependency version to 2.0.0
+  ([`b545f9d`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/b545f9df424e6954a6e859d101d4fc5fc8b12a8f))
+
+
+## v0.2.0 (2026-03-29)
+
+### Features
+
+- Complete v0.2.0 feature set — collection, typed info, events, OpenAI adapter, and request types
+  ([`749cab2`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/749cab22b69af12cdf7f3025dec5fca7cca9079e))
+
+Add the full StreamContext feature surface for AI SDK v6 compatibility:
+
+Stream collection & persistence: - collect=True accumulates text, reasoning, tool calls, sources,
+  files, data parts, token counts, and timing into StreamRecord (ctx.record) - on_finish callback
+  for post-stream DB persistence - Per-call collect=False to skip recording ephemeral writes -
+  RuntimeError when collect=True on non-collecting context
+
+StreamContext enhancements: - Generic[_InfoT] typed custom_information (ctx.info) for request-scoped
+  metadata - ctx.run() safe task runner: auto-finish, auto-error, GC-safe - ctx.error() emits
+  ErrorEvent then terminates stream - ctx.abort() emits AbortEvent per v6 spec (with optional
+  reason) - ctx.write_file() for FileEvent support - ctx.write_data() for dynamic data-{name} parts
+  (any JSON-serializable value) - start_tool_input/stream_tool_input_delta/finish_tool_input for
+  streaming tool input - start_metadata parameter for start event messageMetadata - Auto-count
+  streaming tokens with configurable count_func + set_usage() override - Timing fields (created_at,
+  finished_at, duration_ms) on StreamRecord
+
+New event types: - ErrorEvent, AbortEvent, FileEvent, DataEvent (dynamic type) -
+  ToolInputStartEvent, ToolInputDeltaEvent, ToolInputAvailableEvent
+
+OpenAI contrib module (contrib/openai): - consume_openai_stream() maps OpenAI chunks to ctx.write_*
+  calls - convert_to_openai_messages() converts UIMessage parts to ChatCompletionMessageParam -
+  Duck-typed — no hard openai package dependency
+
+Request body types (types.py): - ChatRequest, UIMessage, and all v6 part models (TextUIPart,
+  ToolUIPart, etc.) - Discriminated union for MessagePart with dynamic prefix support -
+  extra="allow" for forward compatibility
+
+Bug fixes: - Tool name deduplication in consume_openai_stream - Tool call ID consistency using
+  ToolCallHandle.toolCallId - write_data() accepts any JSON-serializable value, not just dict -
+  DataEvent.encode() uses model_dump_json() for non-native types
+
+Also adds chatbot-backend example (FastAPI + Redis + 5 tools), hierarchical AGENTS.md knowledge
+  base, and 237 passing tests.
+
+
+## v0.1.2 (2026-03-22)
 
 ### Bug Fixes
 

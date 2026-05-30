@@ -7,7 +7,8 @@ LLM needs to produce a contextual reply.
 
 Pattern:
 1. Create a ``StreamContext`` at the start of the request.
-2. Spin up a background asyncio task that calls llm_service.chat().
+2. Call ``await ctx.run(...)`` to schedule the background work with
+   automatic finish/error handling.
 3. Return ``StreamingResponse(ctx.stream(), ...)`` immediately so the
    client starts receiving SSE events as they are produced.
 
@@ -18,8 +19,6 @@ its own tool-input / source-url events through the same ``ctx``).
 
 from __future__ import annotations
 
-import asyncio
-
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -29,7 +28,6 @@ from ai_sdk_stream_python import StreamContext
 from ..services import llm_service
 
 router = APIRouter()
-_background_tasks: set[asyncio.Task] = set()
 
 
 class ChatMessage(BaseModel):
@@ -51,19 +49,11 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     """
     ctx = StreamContext()
 
-    async def _work() -> None:
-        try:
-            messages = [m.model_dump() for m in request.messages]
-            await llm_service.chat(messages, ctx=ctx)
-        except Exception as exc:
-            await ctx.write_text(f"\n\n_(Error: {exc})_")
-        finally:
-            await ctx.finish()
+    async def _work(c: StreamContext) -> None:
+        messages = [m.model_dump() for m in request.messages]
+        await llm_service.chat(messages, ctx=c)
 
-    _task = asyncio.create_task(_work())
-    _background_tasks.add(_task)
-    _task.add_done_callback(_background_tasks.discard)
-
+    await ctx.run(_work)
     return StreamingResponse(
         ctx.stream(),
         media_type="text/event-stream",

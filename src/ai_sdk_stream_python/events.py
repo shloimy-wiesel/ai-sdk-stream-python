@@ -129,6 +129,61 @@ class SourceUrlEvent(BaseEvent):
     title: str | None = None
 
 
+# ── Files ──────────────────────────────────────────────────────────────────────
+
+
+class FileEvent(BaseEvent):
+    type: Literal["file"] = "file"
+    url: str
+    mediaType: str
+
+
+# ── Error ──────────────────────────────────────────────────────────────────────
+
+
+class ErrorEvent(BaseEvent):
+    type: Literal["error"] = "error"
+    errorText: str
+
+
+# ── Custom data parts ─────────────────────────────────────────────────────────
+
+
+class DataEvent(BaseEvent):
+    """Custom data part with a dynamic ``data-{name}`` type.
+
+    Not included in the ``UIMessageStreamEvent`` discriminated union because
+    the ``type`` field is dynamic.  Use ``ctx.write_data()`` to emit these.
+    """
+
+    type: str  # "data-{name}", validated by ctx.write_data()
+    data: Any
+    id: str | None = None
+    transient: bool | None = None
+
+    def encode(self) -> str:
+        """Serialise as SSE, always including ``data`` even when ``None``."""
+        # model_dump_json(exclude_none=True) drops data when it is None;
+        # the wire protocol requires the field to always be present.
+        # We use model_dump_json (not model_dump + json.dumps) to keep Pydantic's
+        # serializer for any non-JSON-native types inside data.
+        if self.data is None:
+            # Build without data (exclude_none drops it), then splice it in.
+            base = self.model_dump_json(exclude_none=True)
+            # Insert "data":null before the closing brace.
+            patched = base[:-1] + ',"data":null}'
+            return "data: " + patched + "\n\n"
+        return "data: " + self.model_dump_json(exclude_none=True) + "\n\n"
+
+
+# ── Abort ──────────────────────────────────────────────────────────────────────
+
+
+class AbortEvent(BaseEvent):
+    type: Literal["abort"] = "abort"
+    reason: str | None = None
+
+
 # ── Discriminated union ────────────────────────────────────────────────────────
 
 UIMessageStreamEvent = Annotated[
@@ -146,6 +201,9 @@ UIMessageStreamEvent = Annotated[
     | ToolOutputAvailableEvent
     | ToolOutputErrorEvent
     | SourceUrlEvent
+    | FileEvent
+    | ErrorEvent
+    | AbortEvent
     | FinishStepEvent
     | FinishEvent,
     Field(discriminator="type"),
@@ -170,4 +228,8 @@ __all__ = [
     "ToolOutputAvailableEvent",
     "ToolOutputErrorEvent",
     "SourceUrlEvent",
+    "FileEvent",
+    "DataEvent",
+    "ErrorEvent",
+    "AbortEvent",
 ]
