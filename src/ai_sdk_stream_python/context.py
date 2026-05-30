@@ -34,15 +34,12 @@ Usage example (FastAPI)::
     async def chat(request: ChatRequest):
         ctx = StreamContext()
 
-        async def _work():
-            try:
-                await ctx.store.set("query", request.message)
-                async for chunk in my_llm.stream(request.message):
-                    await ctx.write_text(chunk)
-            finally:
-                await ctx.finish()
+        async def _work(c: StreamContext) -> None:
+            await c.store.set("query", request.message)
+            async for chunk in my_llm.stream(request.message):
+                await c.write_text(chunk)
 
-        asyncio.create_task(_work())
+        await ctx.run(_work)
         return StreamingResponse(
             ctx.stream(),
             media_type="text/event-stream",
@@ -117,8 +114,8 @@ class StreamContext(Generic[_InfoT]):
     A stateful context for producing a Vercel AI SDK v6 UIMessageStream.
 
     One ``StreamContext`` maps to one assistant message.  Create it at the
-    start of a request, spin up a background task that writes events through
-    the helpers, and pass ``ctx.stream()`` to ``StreamingResponse``.
+    start of a request, use ``ctx.run()`` to schedule the background work,
+    and pass ``ctx.stream()`` to ``StreamingResponse``.
 
     Attributes
     ----------
