@@ -114,8 +114,8 @@ class StreamContext(Generic[_InfoT]):
     A stateful context for producing a Vercel AI SDK v6 UIMessageStream.
 
     One ``StreamContext`` maps to one assistant message.  Create it at the
-    start of a request, spin up a background task that writes events through
-    the helpers, and pass ``ctx.stream()`` to ``StreamingResponse``.
+    start of a request, use ``ctx.run()`` to schedule the background work,
+    and pass ``ctx.stream()`` to ``StreamingResponse``.
 
     Attributes
     ----------

@@ -48,8 +48,12 @@ async def chat(request: ChatRequest) -> StreamingResponse:
     are contextually aware of previous turns.
     """
     ctx = StreamContext()
-    messages = [m.model_dump() for m in request.messages]
-    await ctx.run(lambda c: llm_service.chat(messages, ctx=c))
+
+    async def _work(c: StreamContext) -> None:
+        messages = [m.model_dump() for m in request.messages]
+        await llm_service.chat(messages, ctx=c)
+
+    await ctx.run(_work)
     return StreamingResponse(
         ctx.stream(),
         media_type="text/event-stream",
