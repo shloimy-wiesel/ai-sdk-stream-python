@@ -608,6 +608,36 @@ class TestEdgeCases:
         assert events[0]["type"] == "start"
         assert any(e["type"] == "text-delta" for e in events)
 
+    async def test_stream_raises_on_second_consumption(self):
+        """Calling ctx.stream() a second time raises RuntimeError immediately."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.write_text("A")
+            await c.finish()
+
+        await ctx.run(work)
+        await collect_stream(ctx)  # first consumption — drains fine
+
+        with pytest.raises(RuntimeError, match="can only be consumed once"):
+            async for _ in ctx.stream():
+                pass
+
+    async def test_stream_raises_before_iteration_on_second_call(self):
+        """RuntimeError is raised when stream() is called again, not on first next()."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.finish()
+
+        await ctx.run(work)
+        await collect_stream(ctx)  # first consumption
+
+        # The error must surface immediately (before any await on the queue)
+        gen = ctx.stream()
+        with pytest.raises(RuntimeError, match="can only be consumed once"):
+            await gen.__anext__()
+
 
 # ---------------------------------------------------------------------------
 # StateStore integration

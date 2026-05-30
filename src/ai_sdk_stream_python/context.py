@@ -170,6 +170,7 @@ class StreamContext(Generic[_InfoT]):
         self._text_id: str | None = None
         self._reasoning_id: str | None = None
         self._finished: bool = False
+        self._streamed: bool = False
 
         # Collection — auto-enabled when on_finish is provided
         self._collect: bool = collect or on_finish is not None
@@ -764,7 +765,16 @@ class StreamContext(Generic[_InfoT]):
 
         The generator runs until ``finish()`` (or ``abort()``) is called by
         the background task.
+
+        Raises ``RuntimeError`` if called a second time — the internal queue
+        is drained on the first consumption and cannot be replayed.
         """
+        if self._streamed:
+            raise RuntimeError(
+                "ctx.stream() can only be consumed once. "
+                "The internal queue is drained on first iteration and cannot be replayed."
+            )
+        self._streamed = True
         while True:
             ev = await self._queue.get()
             if ev is None:
