@@ -1035,6 +1035,17 @@ class TestRun:
         await collect_stream(ctx)
         assert finish_count == 1
 
+    async def test_double_run_raises(self):
+        """Calling run() a second time on the same context raises RuntimeError."""
+        ctx = StreamContext()
+
+        async def work(c):
+            await c.finish()
+
+        await ctx.run(work)
+        with pytest.raises(RuntimeError, match="ctx.run\\(\\) has already been called"):
+            await ctx.run(work)
+
 
 # ---------------------------------------------------------------------------
 # tool_calls_in_reasoning flag
