@@ -43,7 +43,7 @@ from .collect import FileRecord as FileRecord
 from .collect import SourceRecord as SourceRecord
 from .collect import StreamRecord as StreamRecord
 from .collect import ToolCallRecord as ToolCallRecord
-from .context import OnFinishCallback, StreamContext, ToolCallHandle
+from .context import OnFinishCallback, StreamContext, ToolApprovalHandle, ToolCallHandle
 from .events import (
     AbortEvent,
     BaseEvent,
@@ -61,10 +61,13 @@ from .events import (
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
+    ToolApprovalRequestEvent,
     ToolInputAvailableEvent,
     ToolInputDeltaEvent,
+    ToolInputErrorEvent,
     ToolInputStartEvent,
     ToolOutputAvailableEvent,
+    ToolOutputDeniedEvent,
     ToolOutputErrorEvent,
     UIMessageStreamEvent,
 )
@@ -87,6 +90,7 @@ __all__ = [
     # Core
     "StreamContext",
     "ToolCallHandle",
+    "ToolApprovalHandle",
     "OnFinishCallback",
     "StateStore",
     # Collection
@@ -115,8 +119,11 @@ __all__ = [
     "ToolInputStartEvent",
     "ToolInputDeltaEvent",
     "ToolInputAvailableEvent",
+    "ToolInputErrorEvent",
+    "ToolApprovalRequestEvent",
     "ToolOutputAvailableEvent",
     "ToolOutputErrorEvent",
+    "ToolOutputDeniedEvent",
     # Sources
     "SourceUrlEvent",
     # Files

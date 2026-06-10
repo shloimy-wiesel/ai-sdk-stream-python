@@ -84,10 +84,13 @@ from .events import (
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
+    ToolApprovalRequestEvent,
     ToolInputAvailableEvent,
     ToolInputDeltaEvent,
+    ToolInputErrorEvent,
     ToolInputStartEvent,
     ToolOutputAvailableEvent,
+    ToolOutputDeniedEvent,
     ToolOutputErrorEvent,
 )
 from .state import StateStore
@@ -107,6 +110,14 @@ class ToolCallHandle:
 
     toolCallId: str
     toolName: str
+
+
+@dataclass
+class ToolApprovalHandle:
+    """Returned by ``request_tool_approval`` with the approval binding IDs."""
+
+    approvalId: str
+    toolCallId: str
 
 
 class StreamContext(Generic[_InfoT]):
@@ -486,6 +497,46 @@ class StreamContext(Generic[_InfoT]):
             )
         )
 
+    async def fail_tool_input(
+        self,
+        tool_call_id: str,
+        tool_name: str,
+        input: Any,
+        error_text: str,
+    ) -> None:
+        """Emit ``tool-input-error`` when tool input parsing fails."""
+        if self._record is not None:
+            for tc in self._record.tool_calls:
+                if tc.tool_call_id == tool_call_id:
+                    tc.input = input
+                    tc.error = error_text
+                    break
+        self.write_event_to_stream(
+            ToolInputErrorEvent(
+                toolCallId=tool_call_id,
+                toolName=tool_name,
+                input=input,
+                errorText=error_text,
+            )
+        )
+
+    async def request_tool_approval(
+        self,
+        tool_call_id: str,
+        *,
+        approval_id: str | None = None,
+    ) -> ToolApprovalHandle:
+        """Emit ``tool-approval-request`` for a pending tool call."""
+        await self._ensure_step_open()
+        await self._ensure_text_closed()
+        if not self._tool_calls_in_reasoning:
+            await self._ensure_reasoning_closed()
+        aid = approval_id or str(uuid.uuid4())
+        self.write_event_to_stream(
+            ToolApprovalRequestEvent(approvalId=aid, toolCallId=tool_call_id)
+        )
+        return ToolApprovalHandle(approvalId=aid, toolCallId=tool_call_id)
+
     async def complete_tool_call(self, tool_call_id: str, output: Any) -> None:
         """Emit ``tool-output-available`` with the tool result."""
         if self._record is not None:
@@ -507,6 +558,10 @@ class StreamContext(Generic[_InfoT]):
         self.write_event_to_stream(
             ToolOutputErrorEvent(toolCallId=tool_call_id, error=error)
         )
+
+    async def deny_tool_call(self, tool_call_id: str) -> None:
+        """Emit ``tool-output-denied`` when tool execution is denied."""
+        self.write_event_to_stream(ToolOutputDeniedEvent(toolCallId=tool_call_id))
 
     async def write_data(
         self,

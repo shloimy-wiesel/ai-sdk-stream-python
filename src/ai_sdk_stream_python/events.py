@@ -107,6 +107,20 @@ class ToolInputAvailableEvent(BaseEvent):
     input: dict[str, Any]
 
 
+class ToolInputErrorEvent(BaseEvent):
+    type: Literal["tool-input-error"] = "tool-input-error"
+    toolCallId: str
+    toolName: str
+    input: Any
+    errorText: str
+
+
+class ToolApprovalRequestEvent(BaseEvent):
+    type: Literal["tool-approval-request"] = "tool-approval-request"
+    approvalId: str
+    toolCallId: str
+
+
 class ToolOutputAvailableEvent(BaseEvent):
     type: Literal["tool-output-available"] = "tool-output-available"
     toolCallId: str
@@ -117,6 +131,11 @@ class ToolOutputErrorEvent(BaseEvent):
     type: Literal["tool-output-error"] = "tool-output-error"
     toolCallId: str
     error: str
+
+
+class ToolOutputDeniedEvent(BaseEvent):
+    type: Literal["tool-output-denied"] = "tool-output-denied"
+    toolCallId: str
 
 
 # ── Sources ────────────────────────────────────────────────────────────────────
@@ -198,8 +217,11 @@ UIMessageStreamEvent = Annotated[
     | ToolInputStartEvent
     | ToolInputDeltaEvent
     | ToolInputAvailableEvent
+    | ToolInputErrorEvent
+    | ToolApprovalRequestEvent
     | ToolOutputAvailableEvent
     | ToolOutputErrorEvent
+    | ToolOutputDeniedEvent
     | SourceUrlEvent
     | FileEvent
     | ErrorEvent
@@ -225,8 +247,11 @@ __all__ = [
     "ToolInputStartEvent",
     "ToolInputDeltaEvent",
     "ToolInputAvailableEvent",
+    "ToolInputErrorEvent",
+    "ToolApprovalRequestEvent",
     "ToolOutputAvailableEvent",
     "ToolOutputErrorEvent",
+    "ToolOutputDeniedEvent",
     "SourceUrlEvent",
     "FileEvent",
     "DataEvent",

@@ -253,6 +253,68 @@ class TestToolCalls:
         assert start["toolCallId"] == available["toolCallId"] == output["toolCallId"]
 
 
+class TestToolApprovalEvents:
+    async def test_request_tool_approval_emits_binding_ids(self):
+        async def work(ctx):
+            handle = await ctx.begin_tool_call("search", {"q": "test"})
+            approval = await ctx.request_tool_approval(
+                handle.toolCallId, approval_id="approval-1"
+            )
+            assert approval.toolCallId == handle.toolCallId
+            assert approval.approvalId == "approval-1"
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        approval_ev = next(e for e in events if e["type"] == "tool-approval-request")
+        assert approval_ev["approvalId"] == "approval-1"
+        assert approval_ev["toolCallId"]
+
+    async def test_deny_tool_call_emits_denied_event(self):
+        async def work(ctx):
+            handle = await ctx.begin_tool_call("search", {"q": "test"})
+            await ctx.request_tool_approval(handle.toolCallId, approval_id="approval-1")
+            await ctx.deny_tool_call(handle.toolCallId)
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        denied_ev = next(e for e in events if e["type"] == "tool-output-denied")
+        assert denied_ev["toolCallId"]
+
+    async def test_fail_tool_input_emits_error_text_and_input(self):
+        async def work(ctx):
+            handle = await ctx.start_tool_input("search", tool_call_id="tc1")
+            await ctx.fail_tool_input(
+                handle.toolCallId,
+                "search",
+                {"q": 123},
+                "Expected q to be a string",
+            )
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        input_error_ev = next(e for e in events if e["type"] == "tool-input-error")
+        assert input_error_ev["toolCallId"] == "tc1"
+        assert input_error_ev["toolName"] == "search"
+        assert input_error_ev["input"] == {"q": 123}
+        assert input_error_ev["errorText"] == "Expected q to be a string"
+
+    async def test_fail_tool_input_updates_collected_record(self):
+        ctx = StreamContext(collect=True)
+        handle = await ctx.start_tool_input("search", tool_call_id="tc1")
+        await ctx.fail_tool_input(
+            handle.toolCallId,
+            "search",
+            {"q": 123},
+            "Expected q to be a string",
+        )
+        await ctx.finish()
+
+        assert ctx.record is not None
+        tool_call = ctx.record.tool_calls[0]
+        assert tool_call.input == {"q": 123}
+        assert tool_call.error == "Expected q to be a string"
+
+
 # ---------------------------------------------------------------------------
 # Steps
 # ---------------------------------------------------------------------------

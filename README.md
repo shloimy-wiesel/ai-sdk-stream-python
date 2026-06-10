@@ -48,7 +48,7 @@ async def my_work(ctx):
 
 | Feature | Detail |
 |---|---|
-| **Typed events** | All 16 v6 protocol events as Pydantic models |
+| **Typed events** | Vercel AI SDK v6 protocol events as Pydantic models |
 | **Lifecycle auto-management** | `start`, `start-step`, `text-start` etc. are emitted automatically |
 | **Shared state** | `ctx.store.get/set()` — dot-path key-value store shared across modules |
 | **Custom information** | `ctx.info` — typed, read-only Pydantic model for request-scoped metadata |
