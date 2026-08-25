@@ -479,6 +479,40 @@ class TestFiles:
         assert file_evs[0]["url"] == "https://example.com/a.png"
         assert file_evs[1]["url"] == "https://example.com/b.jpg"
 
+    async def test_write_file_closes_open_text(self):
+        """Text streamed after a file must start a NEW text part.
+
+        The frontend appends deltas to the part their id refers to, so reusing
+        the pre-file text id would merge post-file text back into the block
+        rendered *above* the file.
+        """
+
+        async def work(ctx):
+            await ctx.write_text("before")
+            await ctx.write_file("https://example.com/a.png", "image/png")
+            await ctx.write_text("after")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        assert types.index("text-end") < types.index("file")
+
+        first_id = next(e for e in events if e["type"] == "text-start")["id"]
+        after_delta = next(
+            e for e in events if e["type"] == "text-delta" and e["delta"] == "after"
+        )
+        assert after_delta["id"] != first_id
+
+    async def test_write_file_closes_open_reasoning(self):
+        async def work(ctx):
+            await ctx.write_reasoning("thinking")
+            await ctx.write_file("https://example.com/a.png", "image/png")
+            await ctx.finish()
+
+        events = await run_and_collect(work)
+        types = [e["type"] for e in events]
+        assert types.index("reasoning-end") < types.index("file")
+
 
 # ---------------------------------------------------------------------------
 # Edge cases
