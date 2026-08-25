@@ -552,7 +552,11 @@ class StreamContext(Generic[_InfoT]):
         """
         Emit a ``file`` event (image, PDF, or other file content).
 
-        Auto-emits ``start`` and ``start-step`` if not yet open.
+        Auto-emits ``start`` and ``start-step`` if not yet open, and closes any
+        open text / reasoning part first.  Closing is required: the frontend
+        appends deltas to the part their ``id`` refers to, so text streamed
+        after a file would otherwise be merged back into the text block
+        *preceding* the file instead of rendering after it.
         On the frontend this produces a ``FileUIPart`` in ``message.parts``.
 
         Pass ``collect=False`` to stream the file to the frontend without
@@ -560,6 +564,8 @@ class StreamContext(Generic[_InfoT]):
         context was created with ``collect=False`` raises ``RuntimeError``.
         """
         await self._ensure_step_open()
+        await self._ensure_text_closed()
+        await self._ensure_reasoning_closed()
         if self._should_collect(collect) and self._record is not None:
             self._record.files.append(FileRecord(url=url, media_type=media_type))
         self.write_event_to_stream(FileEvent(url=url, mediaType=media_type))
