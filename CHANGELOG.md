@@ -1,6 +1,21 @@
 # CHANGELOG
 
 
+## v0.5.0-b.3 (2026-11-05)
+
+### Features
+
+- Add test_stream helpers for streaming fake responses
+  ([#71](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/71),
+  [`50684b3`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/50684b386fd2543e784b497d6f4bfdea3f0e1066))
+
+Add ai_sdk_stream_python.testing with test_stream() and test_stream_response(), plus a
+  StreamContext.test_stream() method. They stream canned text, and optionally canned reasoning and
+  tool calls, so users can try a frontend without calling an LLM.
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.5.0-b.2 (2026-11-05)
 
 ### Bug Fixes
