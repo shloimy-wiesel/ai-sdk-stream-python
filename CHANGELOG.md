@@ -1,6 +1,28 @@
 # CHANGELOG
 
 
+## v0.5.0-b.1 (2026-11-05)
+
+### Features
+
+- **contrib**: Add OpenAI Agents SDK adapter
+  ([#68](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/68),
+  [`dbd6ef6`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/dbd6ef6c7a8ea46d77c065d20e5e4534fb2d62ce))
+
+Add ai_sdk_stream_python.contrib.openai_agents (installed via the new `agents` extra) with:
+
+- consume_agent_stream(result, ctx): maps Runner.run_streamed events to StreamContext writes —
+  text/reasoning deltas, tool calls keyed by call_id (parallel-safe), handoff notes, new steps on
+  agent updates, opt-in MCP hook, and usage from result.context_wrapper.usage. Cancels the run on
+  task cancellation or external ctx finish. - agent_tool_stream_handler(ctx): on_stream callback for
+  Agent.as_tool that renders nested agent activity as reasoning notes (or as tool parts with
+  nested_tool_calls=True), never as top-level text.
+
+Closes #67
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.4.1 (2026-08-25)
 
 ### Bug Fixes
@@ -113,6 +135,9 @@ Also adds chatbot-backend example (FastAPI + Redis + 5 tools), hierarchical AGEN
 
 
 ## v0.1.2 (2026-03-22)
+
+
+## v0.1.2-b.1 (2026-03-22)
 
 ### Bug Fixes
 
