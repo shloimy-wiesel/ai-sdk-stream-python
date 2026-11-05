@@ -56,9 +56,12 @@ import uuid
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from .testing import FakeToolCall
 
 from .collect import (
     DataPartRecord,
@@ -709,6 +712,41 @@ class StreamContext(Generic[_InfoT]):
         self._finished = True
         self._queue.put_nowait(ErrorEvent(errorText=error_text))
         self._queue.put_nowait(None)
+
+    async def test_stream(
+        self,
+        *,
+        reasoning: bool = False,
+        tool_calls: bool = False,
+        delay: float = 0.03,
+        text: str | None = None,
+        reasoning_text: str | None = None,
+        tools: list[FakeToolCall] | tuple[FakeToolCall, ...] | None = None,
+        finish: bool = True,
+    ) -> None:
+        """
+        Stream a fake, ready-made assistant response — no LLM needed.
+
+        Handy for trying out a frontend.  Streams canned text, plus canned
+        reasoning (``reasoning=True``) and tool calls (``tool_calls=True``).
+        See :func:`ai_sdk_stream_python.testing.test_stream` for all options.
+
+        Example::
+
+            await ctx.run(lambda c: c.test_stream(reasoning=True, tool_calls=True))
+        """
+        from .testing import test_stream
+
+        await test_stream(
+            self,
+            reasoning=reasoning,
+            tool_calls=tool_calls,
+            delay=delay,
+            text=text,
+            reasoning_text=reasoning_text,
+            tools=tools,
+            finish=finish,
+        )
 
     async def run(
         self, coro: Callable[[StreamContext[_InfoT]], Awaitable[None]]
