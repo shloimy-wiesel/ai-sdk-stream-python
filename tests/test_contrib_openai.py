@@ -189,6 +189,24 @@ class TestReasoning:
         assert result.content == "done"
         assert any(e["type"] == "reasoning-delta" for e in events)
 
+    async def test_reasoning_written_before_text_in_same_chunk(self):
+        """A chunk carrying both reasoning and content writes reasoning first."""
+        chunks = [
+            _chunk(
+                [
+                    _choice(
+                        _delta(content="answer", reasoning_content="think"),
+                        finish_reason="stop",
+                    )
+                ]
+            ),
+        ]
+        result, events = await run_consume(chunks)
+        assert result.content == "answer"
+        types = [e["type"] for e in events]
+        assert types.index("reasoning-delta") < types.index("text-delta")
+        assert types.index("reasoning-end") < types.index("text-start")
+
     async def test_reasoning_content_preferred_over_reasoning(self):
         """reasoning_content takes priority when both fields are present."""
         d = SimpleNamespace(

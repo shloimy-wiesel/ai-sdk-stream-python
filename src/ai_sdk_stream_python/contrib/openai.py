@@ -322,19 +322,19 @@ async def consume_openai_stream(
         if fr is not None:
             finish_reason = fr
 
-        # ── Text ────────────────────────────────────────────────────────────
-        text_delta = getattr(delta, "content", None)
-        if text_delta:
-            content += text_delta
-            await ctx.write_text(text_delta)
-
-        # ── Reasoning ───────────────────────────────────────────────────────
+        # ── Reasoning (before text within a chunk) ──────────────────────────
         # OpenAI o-models use `reasoning_content`; Anthropic via OpenAI uses `reasoning`
         reasoning_delta = getattr(delta, "reasoning_content", None) or getattr(
             delta, "reasoning", None
         )
         if reasoning_delta:
             await ctx.write_reasoning(reasoning_delta)
+
+        # ── Text ────────────────────────────────────────────────────────────
+        text_delta = getattr(delta, "content", None)
+        if text_delta:
+            content += text_delta
+            await ctx.write_text(text_delta)
 
         # ── Tool calls ──────────────────────────────────────────────────────
         tool_calls = getattr(delta, "tool_calls", None)
