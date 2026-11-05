@@ -238,7 +238,7 @@ class TestToolCalls:
 
         events = await run_and_collect(work)
         error_ev = next(e for e in events if e["type"] == "tool-output-error")
-        assert error_ev["error"] == "timeout"
+        assert error_ev["errorText"] == "timeout"
 
     async def test_tool_call_ids_match(self):
         async def work(ctx):
