@@ -1,6 +1,25 @@
 # CHANGELOG
 
 
+## v0.5.0-b.4 (2026-11-05)
+
+### Bug Fixes
+
+- Emit errorText in tool-output-error chunks
+  ([#73](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/73),
+  [`ed04b0b`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/ed04b0bff67ea48608a832f54cf072e1d5a8328d))
+
+The AI SDK v6 uiMessageChunkSchema names the field errorText; emitting `error` made the client
+  reject the chunk and break the stream.
+
+Adds a conformance test that validates every emitted chunk against a mirror of the v6 schema
+  (ai@6.0.323) with unknown keys forbidden.
+
+Closes #72
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.5.0-b.3 (2026-11-05)
 
 ### Features
