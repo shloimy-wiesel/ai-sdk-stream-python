@@ -1,6 +1,27 @@
 # CHANGELOG
 
 
+## v0.5.0-b.2 (2026-11-05)
+
+### Bug Fixes
+
+- **contrib**: Write reasoning before text in OpenAI adapters
+  ([#70](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/70),
+  [`d73d8ae`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/d73d8aeb29951720642f127d014dca782aa3435f))
+
+* fix(contrib): write reasoning deltas before text in consume_openai_stream
+
+Closes #69
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+* fix(contrib): write reasoning items before text in consume_agent_stream
+
+---------
+
+Co-authored-by: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+
 ## v0.5.0-b.1 (2026-11-05)
 
 ### Features
