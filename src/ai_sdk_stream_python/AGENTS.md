@@ -14,6 +14,7 @@ Lifecycle state machine + typed event models that guarantee correct Vercel AI SD
 | `collect.py` | Optional event recording for persistence | `StreamRecord`, `ToolCallRecord`, `SourceRecord`, `FileRecord`, `DataPartRecord` |
 | `types.py` (245 LOC) | Incoming request deserialization | `ChatRequest`, `UIMessage`, `MessagePart`, all `*UIPart` classes |
 | `contrib/openai.py` (433 LOC) | OpenAI adapter (duck-typed, no hard dep) | `consume_openai_stream`, `convert_to_openai_messages`, `ConsumeResult` |
+| `contrib/openai_agents.py` | OpenAI Agents SDK adapter (`[agents]` extra; duck-typed at runtime) | `consume_agent_stream`, `agent_tool_stream_handler` |
 
 ## STATE MACHINE (`context.py`)
 
@@ -100,6 +101,15 @@ All models use `ConfigDict(extra="allow")` for forward-compatibility.
 - **Input**: `convert_to_openai_messages(messages)` — maps UIMessage parts to OpenAI `ChatCompletionMessageParam` dicts. Handles text, images, tool calls (with results), reasoning (opt-in).
 - **Output**: `consume_openai_stream(stream, ctx)` — async iterator over OpenAI chunks → `ctx.write_*()` calls. Buffers tool calls by index; supports streaming deltas (`stream_tool_deltas=True`). Returns `ConsumeResult`. Does NOT call `ctx.finish()`.
 - Duck-typed: works with any `openai`-compatible client. No import-time dependency.
+
+## OPENAI AGENTS SDK ADAPTER (`contrib/openai_agents.py`)
+
+- `consume_agent_stream(result, ctx)` iterates `RunResultStreaming.stream_events()`; meant to run inside `ctx.run()`. Does NOT call `ctx.finish()`.
+- Tool parts keyed by SDK `call_id` (parallel-safe). Hosted tools (`web_search_call`, `mcp_call`, …) are completed immediately from the call item.
+- SDK has no tool-error flag — `detect_tool_error` hook; default matches exception outputs + `SDK_DEFAULT_TOOL_ERROR`.
+- `agent_tool_stream_handler(ctx)` → `as_tool(on_stream=...)`. Nested runs never write text; default = whole-item reasoning notes, `nested_tool_calls=True` = own tool parts.
+- On cancellation / external `ctx` finish → `result.cancel()`.
+- SDK types imported only under `TYPE_CHECKING`; `openai-agents` is in the `dev` group so pyright/tests resolve it.
 
 ## CONVENTIONS (THIS PACKAGE)
 
