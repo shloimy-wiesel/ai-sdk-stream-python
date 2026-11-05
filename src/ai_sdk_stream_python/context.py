@@ -508,7 +508,7 @@ class StreamContext(Generic[_InfoT]):
                     tc.error = error
                     break
         self.write_event_to_stream(
-            ToolOutputErrorEvent(toolCallId=tool_call_id, error=error)
+            ToolOutputErrorEvent(toolCallId=tool_call_id, errorText=error)
         )
 
     async def write_data(

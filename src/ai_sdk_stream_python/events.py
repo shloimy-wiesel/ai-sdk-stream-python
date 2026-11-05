@@ -116,7 +116,7 @@ class ToolOutputAvailableEvent(BaseEvent):
 class ToolOutputErrorEvent(BaseEvent):
     type: Literal["tool-output-error"] = "tool-output-error"
     toolCallId: str
-    error: str
+    errorText: str
 
 
 # ── Sources ────────────────────────────────────────────────────────────────────

@@ -389,7 +389,9 @@ async def test_tool_error_default_message_and_exception():
         )
     )
     errors = {
-        e["toolCallId"]: e["error"] for e in events if e["type"] == "tool-output-error"
+        e["toolCallId"]: e["errorText"]
+        for e in events
+        if e["type"] == "tool-output-error"
     }
     assert errors == {"c1": SDK_DEFAULT_TOOL_ERROR, "c2": "bad input"}
     assert "tool-output-available" not in types(events)
@@ -408,7 +410,9 @@ async def test_tool_error_custom_detector():
         FakeRun([tool_called("c1", "t", {}), tool_output("c1", "ERR:nope")]),
         detect_tool_error=detect,
     )
-    assert [e["error"] for e in events if e["type"] == "tool-output-error"] == ["nope"]
+    assert [e["errorText"] for e in events if e["type"] == "tool-output-error"] == [
+        "nope"
+    ]
 
 
 async def test_hosted_tool_completed_immediately():
