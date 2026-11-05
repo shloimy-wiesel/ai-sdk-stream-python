@@ -1,6 +1,22 @@
 # CHANGELOG
 
 
+## v0.4.1 (2026-08-25)
+
+### Bug Fixes
+
+- Close open text/reasoning parts before emitting file events
+  ([#66](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/66),
+  [`9554c7a`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/9554c7a47a8d94d19528745a29883e5e885bbb87))
+
+`write_file()` emitted the `file` event without closing an in-flight text or reasoning part. Because
+  the frontend appends deltas to the part their `id` refers to, text streamed after a file was
+  merged back into the text block rendered *above* the file instead of after it.
+
+`write_file()` now calls `_ensure_text_closed()` / `_ensure_reasoning_closed()`, matching the
+  behavior of the tool-call and data-part writers, so post-file text starts a fresh part.
+
+
 ## v0.4.0 (2026-05-25)
 
 ### Features
