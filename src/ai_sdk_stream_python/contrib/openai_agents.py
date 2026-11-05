@@ -157,6 +157,10 @@ def _default_tool_error(item: ToolCallOutputItem) -> str | None:
     return None
 
 
+def _reasoning_summary(raw: Any) -> str:
+    return "\n\n".join(_get(s, "text") or "" for s in _get(raw, "summary") or [])
+
+
 async def _maybe_await(value: Any) -> None:
     if inspect.isawaitable(value):
         await value
@@ -299,6 +303,18 @@ async def consume_agent_stream(
                 ):
                     streamed_reasoning.add(data.item_id)
                     await ctx.write_reasoning(data.delta)
+                elif (
+                    data.type == "response.output_item.done"
+                    and _get(data.item, "type") == "reasoning"
+                    and _get(data.item, "id") not in streamed_reasoning
+                ):
+                    # The SDK emits ``reasoning_item_created`` only after the
+                    # turn's text has streamed, so write the summary here to
+                    # keep reasoning ahead of the answer text.
+                    streamed_reasoning.add(_get(data.item, "id"))
+                    summary = _reasoning_summary(data.item)
+                    if summary:
+                        await ctx.write_reasoning(summary)
 
             elif event.type == "agent_updated_stream_event":
                 await ctx.new_step()
@@ -312,9 +328,7 @@ async def consume_agent_stream(
                 elif name == "reasoning_item_created":
                     raw = item.raw_item
                     if _get(raw, "id") not in streamed_reasoning:
-                        summary = "\n\n".join(
-                            _get(s, "text") or "" for s in _get(raw, "summary") or []
-                        )
+                        summary = _reasoning_summary(raw)
                         if summary:
                             await ctx.write_reasoning(summary)
                 elif name == "handoff_occured":

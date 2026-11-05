@@ -33,6 +33,7 @@ from agents.usage import Usage
 from openai.types.responses import (
     ResponseFunctionToolCall,
     ResponseFunctionWebSearch,
+    ResponseOutputItemDoneEvent,
     ResponseOutputMessage,
     ResponseOutputText,
     ResponseReasoningItem,
@@ -82,6 +83,21 @@ def reasoning(delta: str, item_id: str = "rs_1") -> RawResponsesStreamEvent:
             sequence_number=0,
             summary_index=0,
             type="response.reasoning_summary_text.delta",
+        )
+    )
+
+
+def reasoning_done(item_id: str, summary: str) -> RawResponsesStreamEvent:
+    return RawResponsesStreamEvent(
+        data=ResponseOutputItemDoneEvent(
+            item=ResponseReasoningItem(
+                id=item_id,
+                summary=[Summary(text=summary, type="summary_text")],
+                type="reasoning",
+            ),
+            output_index=0,
+            sequence_number=0,
+            type="response.output_item.done",
         )
     )
 
@@ -302,6 +318,25 @@ async def test_reasoning_then_text():
     ]
     assert ctx.record is not None
     assert ctx.record.reasoning == "thinking"
+
+
+async def test_reasoning_item_written_before_text_when_run_item_arrives_late():
+    """The SDK emits reasoning_item_created after the item's text streamed."""
+    events, ctx = await run_agent(
+        FakeRun(
+            [
+                agent_updated(MAIN),
+                reasoning_done("rs_1", "summary only"),
+                text("answer"),
+                reasoning_item("rs_1", "summary only"),  # late; must not duplicate
+            ]
+        )
+    )
+    t = types(events)
+    assert t.index("reasoning-delta") < t.index("text-delta")
+    assert t.count("reasoning-delta") == 1
+    assert ctx.record is not None
+    assert ctx.record.reasoning == "summary only"
 
 
 async def test_unstreamed_reasoning_item_written_from_summary():
