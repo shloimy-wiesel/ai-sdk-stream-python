@@ -65,6 +65,9 @@ async def my_work(ctx):
 uv add ai-sdk-stream-python
 # or
 pip install ai-sdk-stream-python
+
+# with the OpenAI Agents SDK adapter
+pip install "ai-sdk-stream-python[agents]"
 ```
 
 ---
@@ -313,6 +316,68 @@ async def generate(query: str, docs: list, *, ctx: StreamContext) -> None:
 ```
 
 See `example/` for a full runnable example.
+
+---
+
+## OpenAI Agents SDK
+
+`contrib.openai_agents` streams an [OpenAI Agents SDK](https://github.com/openai/openai-agents-python)
+run (`Runner.run_streamed`) through `StreamContext`. It covers text, reasoning,
+parallel tool calls (matched by `call_id`), handoffs, nested agents-as-tools and usage.
+
+```python
+from agents import Agent, Runner
+from ai_sdk_stream_python import StreamContext
+from ai_sdk_stream_python.contrib.openai_agents import (
+    agent_tool_stream_handler,
+    consume_agent_stream,
+)
+
+
+@router.post("/chat")
+async def chat(request: ChatRequest) -> StreamingResponse:
+    ctx = StreamContext()
+    research = researcher.as_tool(
+        tool_name="research",
+        tool_description="Research a topic",
+        on_stream=agent_tool_stream_handler(ctx),  # nested run → reasoning notes
+    )
+    agent = Agent(name="Assistant", tools=[research])
+
+    async def work(ctx: StreamContext) -> None:
+        result = Runner.run_streamed(agent, user_input)
+        await consume_agent_stream(result, ctx)
+
+    await ctx.run(work)  # owns start / finish / error
+    return StreamingResponse(
+        ctx.stream(), media_type="text/event-stream", headers=ctx.response_headers
+    )
+```
+
+| Agents SDK event | Written as |
+|---|---|
+| `response.output_text.delta` | `write_text` |
+| `response.reasoning_text.delta` / `response.reasoning_summary_text.delta` | `write_reasoning` |
+| `tool_called` / `tool_output` | `begin_tool_call` / `complete_tool_call` or `fail_tool_call` |
+| `handoff_occured` | reasoning note "Handing off to X" (`handoff_notes=False` to disable) |
+| `agent_updated_stream_event` | `new_step()` |
+| `mcp_list_tools`, `mcp_approval_*` | ignored unless `on_mcp_event=` is passed |
+| end of stream | `set_usage` from `result.context_wrapper.usage` |
+
+Notes:
+
+- **Tool errors.** The SDK reports a raising tool as an ordinary string output
+  (from the tool's `failure_error_function`). By default, exception objects and the
+  SDK's default failure message become `tool-output-error`. If you use a custom
+  `failure_error_function`, pass `detect_tool_error=lambda item: ...`.
+- **Nested agents.** `agent_tool_stream_handler(ctx)` keeps sub-agent output out of
+  the answer text. It writes whole-item reasoning notes (`[Researcher] Calling search`)
+  so parallel sub-agents can't interleave inside one part. Pass
+  `nested_tool_calls=True` to render inner tool calls as their own tool parts instead.
+- **Cancellation.** If the task is cancelled or `ctx` is finished elsewhere (e.g.
+  `ctx.abort()`), the run is stopped with `result.cancel()`.
+- Exceptions from the run (`MaxTurnsExceeded`, guardrail tripwires) propagate, so
+  `ctx.run()` turns them into an `error` event.
 
 ---
 

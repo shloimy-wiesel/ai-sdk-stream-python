@@ -41,12 +41,18 @@ Repository = "https://github.com/shloimy-wiesel/ai-sdk-stream-python"
 "Bug Tracker" = "https://github.com/shloimy-wiesel/ai-sdk-stream-python/issues"
 Changelog = "https://github.com/shloimy-wiesel/ai-sdk-stream-python/blob/main/CHANGELOG.md"
 
+[project.optional-dependencies]
+agents = [
+    "openai-agents>=0.7",
+]
+
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "openai-agents>=0.7",
     "pyright>=1.1.390",
     "pytest>=8.4.2",
     "pytest-asyncio>=1.2.0",
