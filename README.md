@@ -57,6 +57,23 @@ async def my_work(ctx):
 | **Low-level escape hatch** | `ctx.write(event)` / `ctx.write_event_to_stream(ev)` for raw control |
 | **Abort support** | `ctx.abort()` terminates the stream safely on errors |
 
+### How is this different from Vercel's `ai-python`?
+
+[`vercel-labs/ai-python`](https://github.com/vercel-labs/ai-python) ([ai-python.dev](https://ai-python.dev)) is Vercel's own Python AI SDK, currently in public beta. It is an **agent framework** (models, tools, agent loop) that can output the UIMessageStream protocol from its own agent events.
+
+`ai-sdk-stream-python` is a **framework-agnostic protocol writer**. Use whichever LLM library you like (raw OpenAI, the OpenAI Agents SDK, LlamaIndex, your own code) and push events from any service layer with `ctx.write_*()`.
+
+|  | `ai-sdk-stream-python` | `ai-python` |
+|---|---|---|
+| Focus | Emit UIMessageStream from any backend | Build agents; UI stream is an output adapter |
+| Input | Imperative `ctx.write_*()` calls | Its own `AgentEvent` stream |
+| Shared state / typed `ctx.info` | Yes | No |
+| Persistence (`collect`, `on_finish`) | Yes | No |
+| OpenAI Agents SDK adapter | Yes | No |
+| Python | 3.10+ | 3.12+ |
+
+If you are starting a new project and want an all-in-one agent framework, `ai-python` is worth a look. If you already have an LLM stack and just need a correct stream for `useChat`, this library is the lighter fit.
+
 ---
 
 ## Installation
