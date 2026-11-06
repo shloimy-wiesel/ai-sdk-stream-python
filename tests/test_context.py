@@ -568,6 +568,15 @@ class TestEdgeCases:
         abort_ev = next(e for e in events if e["type"] == "abort")
         assert "reason" not in abort_ev
 
+    async def test_abort_before_any_write_emits_start_first(self):
+        """Every stream begins with ``start``, even when abort() is the first call."""
+
+        async def work(ctx):
+            await ctx.abort(reason="cancel")
+
+        events = await run_and_collect(work)
+        assert [e["type"] for e in events] == ["start", "abort"]
+
     async def test_abort_is_idempotent(self):
         async def work(ctx):
             await ctx.abort("first")

@@ -692,6 +692,7 @@ class StreamContext(Generic[_InfoT]):
         """
         if self._finished:
             return
+        await self._ensure_started()
         self._finished = True
         self._queue.put_nowait(AbortEvent(reason=reason))
         self._queue.put_nowait(None)
