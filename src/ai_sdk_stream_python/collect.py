@@ -10,18 +10,40 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
+
+#: Lifecycle state of a collected tool call (mirrors AI SDK ``ToolUIPart``).
+ToolCallState = Literal[
+    "input-streaming", "input-available", "output-available", "output-error"
+]
 
 
 @dataclass
 class ToolCallRecord:
-    """A single tool call with its input and resolved output (or error)."""
+    """
+    A single tool call with its input and resolved output (or error).
+
+    ``output`` / ``error`` are only set by the *final* result
+    (``complete_tool_call`` / ``fail_tool_call``).  Intermediate snapshots
+    written with ``write_preliminary_tool_output`` go to
+    ``preliminary_output`` instead, so a partial result is never mistaken for
+    a successful one.  ``preliminary_output`` keeps the last snapshot after the
+    call completes or fails (e.g. the partial transcript of a failed
+    sub-agent).
+    """
 
     tool_call_id: str
     tool_name: str
     input: dict[str, Any]
     output: Any = None
     error: str | None = None
+    state: ToolCallState = "input-available"
+    preliminary_output: Any = None
+
+    @property
+    def is_complete(self) -> bool:
+        """``True`` once a final output or an error has been recorded."""
+        return self.state in ("output-available", "output-error")
 
 
 @dataclass
@@ -140,6 +162,8 @@ class StreamRecord:
                     "input": tc.input,
                     "output": tc.output,
                     "error": tc.error,
+                    "state": tc.state,
+                    "preliminary_output": tc.preliminary_output,
                 }
                 for tc in self.tool_calls
             ],
@@ -185,4 +209,5 @@ __all__ = [
     "SourceRecord",
     "StreamRecord",
     "ToolCallRecord",
+    "ToolCallState",
 ]

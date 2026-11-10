@@ -156,6 +156,11 @@ await ctx.complete_tool_call(handle.toolCallId, result)
 # or on error:
 await ctx.fail_tool_call(handle.toolCallId, "timeout")
 
+# Progress of a long-running tool (AI SDK "preliminary" tool results).
+# Each call sends the complete snapshot so far; the part shows as running
+# until complete_tool_call / fail_tool_call.
+await ctx.write_preliminary_tool_output(handle.toolCallId, {"done": 3, "total": 10})
+
 # Source citations
 await ctx.write_source("doc-1", "https://example.com/doc", "My Doc")
 
@@ -218,7 +223,8 @@ response = StreamingResponse(
 record = ctx.record
 # record.text        → "Here is the answer."
 # record.reasoning   → "Let me think…"
-# record.tool_calls  → [ToolCallRecord(tool_name="search", input={...}, output={...})]
+# record.tool_calls  → [ToolCallRecord(tool_name="search", input={...}, output={...},
+#                                      state="output-available")]
 # record.sources     → [SourceRecord(source_id="s1", url="https://example.com", title="My Doc")]
 # record.finish_reason → "stop"
 # record.step_count  → 1
@@ -226,6 +232,11 @@ record = ctx.record
 # Serialize to a plain dict for DB storage:
 await db.insert(record.to_dict())
 ```
+
+Preliminary tool outputs never count as results: they are stored in
+`ToolCallRecord.preliminary_output`, while `output` and `state` change only on
+`complete_tool_call` / `fail_tool_call` (`tc.is_complete` tells them apart). The
+last preliminary snapshot is kept when the tool fails.
 
 `ctx.record` is `None` when `collect=False` (the default). The record is built incrementally as events are emitted, and is fully available after `finish()` completes.
 
@@ -374,10 +385,98 @@ Notes:
   the answer text. It writes whole-item reasoning notes (`[Researcher] Calling search`)
   so parallel sub-agents can't interleave inside one part. Pass
   `nested_tool_calls=True` to render inner tool calls as their own tool parts instead.
+- **Live sub-agent transcripts.** See below.
 - **Cancellation.** If the task is cancelled or `ctx` is finished elsewhere (e.g.
   `ctx.abort()`), the run is stopped with `result.cancel()`.
 - Exceptions from the run (`MaxTurnsExceeded`, guardrail tripwires) propagate, so
   `ctx.run()` turns them into an `error` event.
+
+### Live sub-agent transcripts
+
+`NestedAgentTranscripts` streams each agent-as-tool's transcript (text,
+reasoning, nested tool calls and handoffs) **inside its own tool card**, using
+AI SDK [preliminary tool results](https://ai-sdk.dev/docs/agents/subagents#streaming-subagent-progress).
+It is request-scoped: create one per `StreamContext` and wire it into both the
+tool and the consumer.
+
+```python
+from ai_sdk_stream_python.contrib.openai_agents import NestedAgentTranscripts
+
+ctx = StreamContext()
+transcripts = NestedAgentTranscripts(ctx)  # throttle=0.1s by default
+research = researcher.as_tool(
+    tool_name="research",
+    tool_description="Research a topic",
+    on_stream=transcripts.on_stream,
+)
+agent = Agent(name="Assistant", tools=[research])
+
+async def work(ctx: StreamContext) -> None:
+    result = Runner.run_streamed(agent, user_input)
+    await consume_agent_stream(result, ctx, nested=transcripts)
+```
+
+While the sub-agent runs, its tool part receives `tool-output-available`
+chunks with `preliminary: true`. Each one is a full snapshot:
+
+```json
+{
+  "kind": "subagent", "version": 1, "agentName": "Researcher",
+  "message": {
+    "id": "child_call_research_1", "role": "assistant",
+    "parts": [
+      {"type": "step-start"},
+      {"type": "dynamic-tool", "toolName": "search", "toolCallId": "call_1",
+       "state": "output-available", "input": {"q": "…"}, "output": "…"},
+      {"type": "text", "text": "Findings so far…", "state": "streaming"}
+    ]
+  }
+}
+```
+
+When the tool returns, the final (non-preliminary) output has the same
+envelope plus `"result"`. This is the value the parent model received, and the
+adapter does not change it. A failed tool gets `tool-output-error`.
+
+- Calls are keyed by the originating `tool_call.call_id`, so parallel calls of
+  the same agent stay separate, even when their child item ids collide.
+- Nothing goes into the parent's text/reasoning parts, and the stream still
+  ends with one `finish` / `[DONE]`.
+- Snapshots are held until the parent tool part exists. While tokens stream,
+  the adapter sends at most one snapshot per `throttle` seconds per call, plus a
+  trailing flush. It flushes again on every completed child item.
+- Exceptions inside the callback, which the SDK would otherwise swallow, are
+  re-raised from `consume_agent_stream`. `ctx.run()` then reports them as an
+  `error` event. After cancellation, late callbacks are ignored.
+- Nested events that have no originating tool call are dropped (with a logged
+  warning).
+
+Rendering it with `useChat` (AI SDK v6):
+
+```tsx
+function SubagentCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
+  const out = part.state === "output-available" ? (part.output as any) : null;
+  if (out?.kind !== "subagent") return <GenericToolCard part={part} />;
+  const running = part.preliminary === true;
+  return (
+    <details open={running}>
+      <summary>
+        {out.agentName} · {running ? "Running…" : "Completed"}
+      </summary>
+      {out.message.parts.map((p: any, i: number) =>
+        p.type === "text" ? <Markdown key={i}>{p.text}</Markdown>
+        : p.type === "reasoning" ? <Reasoning key={i} text={p.text} />
+        : p.type === "dynamic-tool" ? <GenericToolCard key={i} part={p} />
+        : null,
+      )}
+    </details>
+  );
+}
+```
+
+`tests/fixtures/nested_agent_transcript.sse` is a recorded stream of two
+parallel sub-agents. `tests/fixtures/verify_nested_fixture.mjs` replays it
+through the AI SDK's `readUIMessageStream`.
 
 ---
 

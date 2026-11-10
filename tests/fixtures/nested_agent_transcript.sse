@@ -1,0 +1,40 @@
+data: {"type":"start","messageId":"msg_fixture"}
+
+data: {"type":"start-step"}
+
+data: {"type":"tool-input-start","toolCallId":"call_a","toolName":"research"}
+
+data: {"type":"tool-input-available","toolCallId":"call_a","toolName":"research","input":{"input":"alpha"}}
+
+data: {"type":"tool-input-start","toolCallId":"call_b","toolName":"research"}
+
+data: {"type":"tool-input-available","toolCallId":"call_b","toolName":"research","input":{"input":"beta"}}
+
+data: {"type":"tool-output-available","toolCallId":"call_a","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_a","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"A-one ","state":"streaming"}]}},"preliminary":true}
+
+data: {"type":"tool-output-available","toolCallId":"call_a","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_a","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"A-one A-two","state":"streaming"}]}},"preliminary":true}
+
+data: {"type":"tool-output-available","toolCallId":"call_a","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_a","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"A-one A-two","state":"done"}]}},"preliminary":true}
+
+data: {"type":"tool-output-available","toolCallId":"call_b","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_b","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"B-one ","state":"streaming"}]}},"preliminary":true}
+
+data: {"type":"tool-output-available","toolCallId":"call_b","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_b","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"B-one B-two","state":"streaming"}]}},"preliminary":true}
+
+data: {"type":"tool-output-available","toolCallId":"call_b","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_b","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"B-one B-two","state":"done"}]}},"preliminary":true}
+
+data: {"type":"tool-output-available","toolCallId":"call_a","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_a","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"A-one A-two","state":"done"}]},"result":"A-one A-two"}}
+
+data: {"type":"tool-output-available","toolCallId":"call_b","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_b","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"B-one B-two","state":"done"}]},"result":"B-one B-two"}}
+
+data: {"type":"text-start","id":"text-0"}
+
+data: {"type":"text-delta","id":"text-0","delta":"done"}
+
+data: {"type":"text-end","id":"text-0"}
+
+data: {"type":"finish-step"}
+
+data: {"type":"finish","finishReason":"stop"}
+
+data: [DONE]
+

@@ -108,9 +108,17 @@ class ToolInputAvailableEvent(BaseEvent):
 
 
 class ToolOutputAvailableEvent(BaseEvent):
+    """Tool result.  ``preliminary=True`` marks an intermediate snapshot.
+
+    The AI SDK replaces the tool part's ``output`` with each chunk it receives
+    for the same ``toolCallId``; a preliminary chunk keeps the part "running"
+    until a final (non-preliminary) chunk arrives.
+    """
+
     type: Literal["tool-output-available"] = "tool-output-available"
     toolCallId: str
     output: Any
+    preliminary: bool | None = None
 
 
 class ToolOutputErrorEvent(BaseEvent):
