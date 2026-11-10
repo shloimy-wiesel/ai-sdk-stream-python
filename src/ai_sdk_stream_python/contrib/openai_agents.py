@@ -109,6 +109,12 @@ _HOSTED_TOOL_TYPES = frozenset(
         "mcp_call",
     }
 )
+#: Output item types that are a call the SDK itself will execute.  Their raw
+#: ``response.output_item.done`` arrives while the model's turn is still
+#: streaming — before the tool runs — whereas the matching ``tool_called`` run
+#: item is only queued once the step's tools have returned.  Opening the tool
+#: part from the raw item is what makes a card appear *while* its tool works.
+_RUN_TOOL_CALL_TYPES = frozenset({"function_call"})
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -237,6 +243,23 @@ async def _begin_tool(ctx: StreamContext[Any], item: Any) -> str:
     return handle.toolCallId
 
 
+async def _begin_raw_tool(ctx: StreamContext[Any], raw: Any) -> str | None:
+    """Emit a tool part for a raw output item the SDK is about to execute.
+
+    Returns the ``toolCallId``, or ``None`` when the item is not such a call
+    (or carries no id to key the part by).
+    """
+    if _get(raw, "type") not in _RUN_TOOL_CALL_TYPES:
+        return None
+    call_id = _call_id(raw)
+    if call_id is None:
+        return None
+    handle = await ctx.begin_tool_call(
+        _get(raw, "name") or "tool", _tool_input(raw), tool_call_id=call_id
+    )
+    return handle.toolCallId
+
+
 async def _end_tool(
     ctx: StreamContext[Any], item: Any, detect_tool_error: ToolErrorDetector
 ) -> None:
@@ -288,7 +311,9 @@ async def consume_agent_stream(
     raw ``response.reasoning_text.delta`` /     ``write_reasoning``
     ``response.reasoning_summary_text.delta``
     ``reasoning_item_created`` (not streamed)   ``write_reasoning`` (summary text)
-    ``tool_called``                             ``begin_tool_call`` (id = call_id)
+    raw ``response.output_item.done``           ``begin_tool_call`` (id = call_id)
+    (a ``function_call`` item)
+    ``tool_called`` (a call not opened above)   ``begin_tool_call`` (id = call_id)
     ``tool_output``                             ``complete_tool_call`` /
                                                 ``fail_tool_call``
     ``handoff_occured``                         reasoning note "Handing off to X"
@@ -300,6 +325,16 @@ async def consume_agent_stream(
 
     Tool calls are tracked by ``call_id``, so parallel calls whose outputs
     arrive interleaved are each resolved on the right tool part.
+
+    A tool part opens as soon as the model has emitted the call, not when the
+    tool returns: the SDK queues ``tool_called`` only after the step's tools
+    have finished, so a card built from it alone would appear already
+    complete.  The raw item is used instead for calls the SDK runs itself
+    (``function_call``), which is what lets a slow tool show as running — and
+    what gives *nested* a parent part to publish its sub-agent transcript on
+    while the sub-agent is still working.  Hosted tools (web search, MCP, …)
+    carry their own result and are still opened and resolved from
+    ``tool_called``.
 
     Exceptions raised by ``stream_events()`` (``MaxTurnsExceeded``, guardrail
     tripwires, model errors) propagate unchanged, so ``ctx.run()`` emits them
@@ -338,6 +373,9 @@ async def consume_agent_stream(
     detect = detect_tool_error or _default_tool_error
     streamed_reasoning: set[str] = set()
     reasoning_key: tuple[Any, ...] | None = None
+    # Calls whose tool part was already opened from the raw item, so the later
+    # ``tool_called`` run item does not open a second one.
+    opened_tools: set[str] = set()
 
     if nested is not None:
         nested._open()
@@ -379,6 +417,15 @@ async def consume_agent_stream(
                     summary = _reasoning_summary(data.item)
                     if summary:
                         await ctx.write_reasoning(summary)
+                elif data.type == "response.output_item.done":
+                    # A call the SDK is about to run: show its card now, so it
+                    # is visible (and can take preliminary results) while the
+                    # tool works.  ``tool_called`` only arrives once it is done.
+                    call_id = await _begin_raw_tool(ctx, data.item)
+                    if call_id is not None:
+                        opened_tools.add(call_id)
+                        if nested is not None:
+                            nested._parent_started(call_id)
 
             elif event.type == "agent_updated_stream_event":
                 await ctx.new_step()
@@ -386,9 +433,10 @@ async def consume_agent_stream(
             elif event.type == "run_item_stream_event":
                 name, item = event.name, event.item
                 if name == "tool_called":
-                    call_id = await _begin_tool(ctx, item)
-                    if nested is not None:
-                        nested._parent_started(call_id)
+                    if _call_id(item.raw_item) not in opened_tools:
+                        call_id = await _begin_tool(ctx, item)
+                        if nested is not None:
+                            nested._parent_started(call_id)
                 elif name == "tool_output":
                     if nested is None or not await nested._finalize(item, detect):
                         await _end_tool(ctx, item, detect)

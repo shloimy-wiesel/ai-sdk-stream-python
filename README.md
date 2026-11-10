@@ -372,7 +372,8 @@ async def chat(request: ChatRequest) -> StreamingResponse:
 |---|---|
 | `response.output_text.delta` | `write_text` |
 | `response.reasoning_text.delta` / `response.reasoning_summary_text.delta` | `write_reasoning` |
-| `tool_called` / `tool_output` | `begin_tool_call` / `complete_tool_call` or `fail_tool_call` |
+| `response.output_item.done` (a `function_call`) | `begin_tool_call` — the card opens here, while the tool runs |
+| `tool_called` / `tool_output` | `begin_tool_call` (calls not opened above) / `complete_tool_call` or `fail_tool_call` |
 | `handoff_occured` | reasoning note "Handing off to X" (`handoff_notes=False` to disable) |
 | `agent_updated_stream_event` | `new_step()` |
 | `mcp_list_tools`, `mcp_approval_*` | ignored unless `on_mcp_event=` is passed |
@@ -384,6 +385,12 @@ Notes:
   (from the tool's `failure_error_function`). By default, exception objects and the
   SDK's default failure message become `tool-output-error`. If you use a custom
   `failure_error_function`, pass `detect_tool_error=lambda item: ...`.
+- **When the card appears.** The SDK queues `tool_called` only once the step's
+  tools have *returned*, so a card built from it alone would pop up already
+  finished. Calls the SDK runs itself (`function_call`) are therefore opened
+  from the raw item the model emits, and show as running for as long as the
+  tool takes. Hosted calls (web search, MCP, …) carry their own result and are
+  still opened and resolved from `tool_called`.
 - **Nested agents.** `agent_tool_stream_handler(ctx)` keeps sub-agent output out of
   the answer text. It writes whole-item reasoning notes (`[Researcher] Calling search`)
   so parallel sub-agents can't interleave inside one part. Pass
@@ -459,7 +466,9 @@ part: `id` is `"subagent_<call_id>"`, and `data` is the envelope plus
   the same agent stay separate, even when their child item ids collide.
 - Nothing goes into the parent's text/reasoning parts, and the stream still
   ends with one `finish` / `[DONE]`.
-- Snapshots are held until the parent tool part exists. While tokens stream,
+- The parent tool part opens as soon as the model has emitted the call (see
+  "When the card appears" above), so a snapshot has somewhere to go while the
+  sub-agent is still working. Any that arrive before it are held. While tokens stream,
   the adapter sends at most one snapshot per `throttle` seconds per call, plus a
   trailing flush. It flushes again on every completed child item.
 - Exceptions inside the callback, which the SDK would otherwise swallow, fail

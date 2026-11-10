@@ -137,6 +137,20 @@ def fn_call(
     )
 
 
+def fn_call_done(
+    call_id: str, name: str, args: dict[str, Any] | None = None
+) -> RawResponsesStreamEvent:
+    """The raw item the model emits for a call — before the SDK runs the tool."""
+    return RawResponsesStreamEvent(
+        data=ResponseOutputItemDoneEvent(
+            item=fn_call(call_id, name, args),
+            output_index=0,
+            sequence_number=0,
+            type="response.output_item.done",
+        )
+    )
+
+
 def tool_called(
     call_id: str, name: str, args: dict[str, Any], agent: Agent = MAIN
 ) -> RunItemStreamEvent:
@@ -1586,3 +1600,141 @@ async def test_failed_and_interrupted_subagents_fixture():
     if os.environ.get("UPDATE_FIXTURES"):
         FAILURE_FIXTURE.write_text(normalized)
     assert normalized == FAILURE_FIXTURE.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Tool cards open while the tool runs
+#
+# The SDK queues ``tool_called`` only after the step's tools have returned, so
+# the raw ``function_call`` item — emitted while the model's turn is still
+# streaming — is what opens the card in time.
+# ---------------------------------------------------------------------------
+
+
+async def test_the_card_opens_from_the_raw_item_not_the_finished_call():
+    run = FakeRun(
+        [
+            fn_call_done("call_a", "search", {"q": "x"}),
+            tool_called("call_a", "search", {"q": "x"}),
+            tool_output("call_a", "hits"),
+        ]
+    )
+
+    events, ctx = await run_agent(run)
+
+    # One card, opened once, resolved once.
+    assert [e for e in events if e["type"] == "tool-input-start"] == [
+        {"type": "tool-input-start", "toolCallId": "call_a", "toolName": "search"}
+    ]
+    assert [e["output"] for e in events if e["type"] == "tool-output-available"] == [
+        "hits"
+    ]
+    assert ctx.record is not None
+    assert len(ctx.record.tool_calls) == 1
+    assert ctx.record.tool_calls[0].input == {"q": "x"}
+
+
+async def test_a_call_with_no_raw_item_still_opens_from_tool_called():
+    """Not every provider path emits the raw item; the run item is the fallback."""
+    run = FakeRun(
+        [tool_called("call_a", "search", {"q": "x"}), tool_output("call_a", "hits")]
+    )
+
+    events, _ = await run_agent(run)
+
+    assert [e["type"] for e in events if e.get("toolCallId") == "call_a"] == [
+        "tool-input-start",
+        "tool-input-available",
+        "tool-output-available",
+    ]
+
+
+async def test_the_card_reaches_the_client_before_the_tool_returns():
+    """The whole point: the card is on the wire while the tool is still working."""
+    ctx = StreamContext()
+    stream = ctx.stream()
+    seen: list[str] = []
+
+    async def while_the_tool_runs() -> None:
+        for _ in range(4):
+            frame = await asyncio.wait_for(anext(stream), 1)
+            seen.append(json.loads(frame.strip().removeprefix("data: "))["type"])
+
+    run = FakeRun(
+        [
+            fn_call_done("call_a", "slow", {}),
+            while_the_tool_runs,
+            tool_called("call_a", "slow", {}),
+            tool_output("call_a", "done"),
+        ]
+    )
+    await consume_agent_stream(run, ctx)  # type: ignore[arg-type]
+    await ctx.finish()
+
+    assert seen == ["start", "start-step", "tool-input-start", "tool-input-available"]
+
+
+async def test_a_hosted_tools_raw_item_does_not_open_a_card_of_its_own():
+    """Hosted calls carry their own result; opening one early would never resolve."""
+    web = ResponseFunctionWebSearch(
+        id="ws_1",
+        action=ActionSearch(type="search", query="news"),
+        status="completed",
+        type="web_search_call",
+    )
+    raw = RawResponsesStreamEvent(
+        data=ResponseOutputItemDoneEvent(
+            item=web,
+            output_index=0,
+            sequence_number=0,
+            type="response.output_item.done",
+        )
+    )
+    run = FakeRun(
+        [
+            raw,
+            RunItemStreamEvent(
+                name="tool_called", item=ToolCallItem(agent=MAIN, raw_item=web)
+            ),
+        ]
+    )
+
+    events, _ = await run_agent(run)
+
+    assert [e["type"] for e in events if e.get("toolCallId") == "ws_1"] == [
+        "tool-input-start",
+        "tool-input-available",
+        "tool-output-available",
+    ]
+
+
+async def test_the_sub_agent_transcript_streams_before_its_call_returns():
+    """A sub-agent's work reaches its card while it works, in the SDK's real order."""
+    parent = fn_call("call_a", "research", {"q": "x"})
+    ctx = StreamContext(collect=True)
+    transcripts = NestedAgentTranscripts(ctx, throttle=0)
+    child = nested_via(transcripts, RESEARCHER, parent)
+    run = FakeRun(
+        [
+            fn_call_done("call_a", "research", {"q": "x"}),
+            child(text("half ")),
+            child(text("an answer")),
+            tool_called("call_a", "research", {"q": "x"}),
+            tool_output("call_a", "concise result"),
+        ]
+    )
+
+    async def work(ctx: StreamContext) -> None:
+        await consume_agent_stream(run, ctx, nested=transcripts)  # type: ignore[arg-type]
+
+    await ctx.run(work)
+    events = await collect(ctx)
+
+    outs = tool_outputs(events, "call_a")
+    # Published as the sub-agent wrote, not coalesced into the final result.
+    assert [(child_texts(o["output"]), o.get("preliminary")) for o in outs] == [
+        (["half "], True),
+        (["half an answer"], True),
+        (["half an answer"], None),
+    ]
+    assert unwrap_subagent_output(outs[-1]["output"]) == "concise result"
