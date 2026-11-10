@@ -1,6 +1,28 @@
 # CHANGELOG
 
 
+## v0.5.0-b.6 (2026-11-10)
+
+### Bug Fixes
+
+- **contrib**: Open a tool card while its tool is still running
+  ([#78](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/78),
+  [`23f1759`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/23f175965c7cc37dd07a99b03ce922d175f42ef9))
+
+The Agents SDK queues the `tool_called` run item only after the step's tools have returned, so a
+  tool part built from it alone first appears when there is nothing left to show: a slow tool looked
+  instant, and `NestedAgentTranscripts` had no part to publish on, buffering every sub-agent
+  snapshot until the run it was narrating had finished.
+
+Calls the SDK runs itself (`function_call`) are now opened from the raw `response.output_item.done`
+  item, which the model emits while its turn is still streaming — before any tool executes.
+  `tool_called` skips a call already opened that way, so nothing is emitted twice; hosted calls (web
+  search, MCP, ...) carry their own result and keep opening and resolving from `tool_called`.
+
+Closes the gap behind #76: sub-agent transcripts now reach the client while the sub-agent writes
+  them.
+
+
 ## v0.5.0-b.5 (2026-11-10)
 
 ### Features
