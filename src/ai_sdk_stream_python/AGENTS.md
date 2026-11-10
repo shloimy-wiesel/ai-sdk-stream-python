@@ -14,7 +14,7 @@ Lifecycle state machine + typed event models that guarantee correct Vercel AI SD
 | `collect.py` | Optional event recording for persistence | `StreamRecord`, `ToolCallRecord`, `SourceRecord`, `FileRecord`, `DataPartRecord` |
 | `types.py` (245 LOC) | Incoming request deserialization | `ChatRequest`, `UIMessage`, `MessagePart`, all `*UIPart` classes |
 | `contrib/openai.py` (433 LOC) | OpenAI adapter (duck-typed, no hard dep) | `consume_openai_stream`, `convert_to_openai_messages`, `ConsumeResult` |
-| `contrib/openai_agents.py` | OpenAI Agents SDK adapter (`[agents]` extra; duck-typed at runtime) | `consume_agent_stream`, `agent_tool_stream_handler` |
+| `contrib/openai_agents.py` | OpenAI Agents SDK adapter (`[agents]` extra; duck-typed at runtime) | `consume_agent_stream`, `agent_tool_stream_handler`, `NestedAgentTranscripts` |
 
 ## STATE MACHINE (`context.py`)
 
@@ -49,6 +49,7 @@ _finished: bool        # finish()/abort()/error() called?
 | `stream_tool_input_delta(id, delta)` | — | `ToolInputDeltaEvent` |
 | `finish_tool_input(id, name, input)` | — | `ToolInputAvailableEvent` |
 | `complete_tool_call(id, output)` | — | `ToolOutputAvailableEvent` |
+| `write_preliminary_tool_output(id, output)` | — | `ToolOutputAvailableEvent(preliminary=True)` (full snapshot, not a delta); `RuntimeError` unless the tool call is open |
 | `fail_tool_call(id, error)` | — | `ToolOutputErrorEvent` |
 | `write_source(id, url, title)` | start | `SourceUrlEvent` |
 | `write_file(url, media_type)` | start, start-step | `FileEvent` |
@@ -80,7 +81,7 @@ When `StreamContext(collect=True)` or `on_finish` callback provided:
 |-------|-----------|
 | `text` | `write_text` (concatenated) |
 | `reasoning` | `write_reasoning` (concatenated) |
-| `tool_calls: list[ToolCallRecord]` | `begin_tool_call` / `complete_tool_call` / `fail_tool_call` |
+| `tool_calls: list[ToolCallRecord]` | `begin_tool_call` / `complete_tool_call` / `fail_tool_call`; `state` tracks lifecycle; `write_preliminary_tool_output` only sets `preliminary_output` (deep copy), cleared by `complete_tool_call`, kept by `fail_tool_call` |
 | `sources: list[SourceRecord]` | `write_source` |
 | `files: list[FileRecord]` | `write_file` |
 | `data_parts: list[DataPartRecord]` | `write_data` (non-transient only) |
@@ -108,6 +109,7 @@ All models use `ConfigDict(extra="allow")` for forward-compatibility.
 - Tool parts keyed by SDK `call_id` (parallel-safe). Hosted tools (`web_search_call`, `mcp_call`, …) are completed immediately from the call item.
 - SDK has no tool-error flag — `detect_tool_error` hook; default matches exception outputs + `SDK_DEFAULT_TOOL_ERROR`.
 - `agent_tool_stream_handler(ctx)` → `as_tool(on_stream=...)`. Nested runs never write text; default = whole-item reasoning notes, `nested_tool_calls=True` = own tool parts.
+- `NestedAgentTranscripts(ctx)` — opt-in: `.on_stream` for `as_tool`, `nested=` for `consume_agent_stream`. State keyed by parent `call_id`; child item ids scoped per call *and* per model response (`response.created` resets — Chat Completions reuses `__fake_id__`). Publishes `{"kind": "subagent", "version": 1, "agentName", "message": {id, role, parts}}` as preliminary outputs (throttled via `loop.call_later`, buffered until `_parent_started`); `_finalize` on the parent `tool_output` sends the final envelope + `result`; on failure it sends `tool-output-error` plus a `data-subagent-transcript` part (the client drops `output` on error). `unwrap_subagent_output` strips the envelope back to `result` for model input (`convert_to_openai_messages` uses it). Calls with `__fake_id__` are unroutable. Callback exceptions fail the card and are re-raised from `consume_agent_stream`; errors from never-opened runs are only logged. `close()` (in its `finally`) fails still-open cards and clears state; `_open()` re-arms the instance for the next run.
 - On cancellation / external `ctx` finish → `result.cancel()`.
 - SDK types imported only under `TYPE_CHECKING`; `openai-agents` is in the `dev` group so pyright/tests resolve it.
 

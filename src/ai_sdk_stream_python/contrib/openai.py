@@ -53,6 +53,7 @@ from ..types import (
     ToolUIPart,
     UIMessage,
 )
+from .openai_agents import unwrap_subagent_output
 
 # ── convert_to_openai_messages helpers ────────────────────────────────────────
 
@@ -123,9 +124,7 @@ def _assistant_messages(
                     {
                         "role": "tool",
                         "tool_call_id": part.toolCallId,
-                        "content": (
-                            json.dumps(part.output) if part.output is not None else ""
-                        ),
+                        "content": _tool_result_content(part.output),
                     }
                 )
             elif part.state == "output-error":
@@ -151,6 +150,13 @@ def _assistant_messages(
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
+
+def _tool_result_content(output: Any) -> str:
+    # A sub-agent transcript envelope is UI-only: send the model the result
+    # it originally received, not the whole transcript.
+    output = unwrap_subagent_output(output)
+    return json.dumps(output) if output is not None else ""
 
 
 def convert_to_openai_messages(

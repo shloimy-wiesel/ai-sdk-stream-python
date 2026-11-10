@@ -50,6 +50,7 @@ Usage example (FastAPI)::
 from __future__ import annotations
 
 import asyncio
+import copy
 import inspect
 import logging
 import uuid
@@ -173,6 +174,8 @@ class StreamContext(Generic[_InfoT]):
         self._text_id: str | None = None
         self._reasoning_id: str | None = None
         self._finished: bool = False
+        # Tool calls whose part exists and has no final output / error yet.
+        self._open_tool_calls: set[str] = set()
 
         # Collection — auto-enabled when on_finish is provided
         self._collect: bool = collect or on_finish is not None
@@ -414,6 +417,7 @@ class StreamContext(Generic[_InfoT]):
         if not self._tool_calls_in_reasoning:
             await self._ensure_reasoning_closed()
         tcid = tool_call_id or str(uuid.uuid4())
+        self._open_tool_calls.add(tcid)
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
         self._queue.put_nowait(
             ToolInputAvailableEvent(
@@ -449,10 +453,16 @@ class StreamContext(Generic[_InfoT]):
         if not self._tool_calls_in_reasoning:
             await self._ensure_reasoning_closed()
         tcid = tool_call_id or str(uuid.uuid4())
+        self._open_tool_calls.add(tcid)
         self._queue.put_nowait(ToolInputStartEvent(toolCallId=tcid, toolName=tool_name))
         if self._should_collect(collect) and self._record is not None:
             self._record.tool_calls.append(
-                ToolCallRecord(tool_call_id=tcid, tool_name=tool_name, input={})
+                ToolCallRecord(
+                    tool_call_id=tcid,
+                    tool_name=tool_name,
+                    input={},
+                    state="input-streaming",
+                )
             )
         return ToolCallHandle(toolCallId=tcid, toolName=tool_name)
 
@@ -478,35 +488,107 @@ class StreamContext(Generic[_InfoT]):
         Updates the collected :class:`~collect.ToolCallRecord` with the
         final *input* if collection is enabled.
         """
-        if self._record is not None:
-            for tc in self._record.tool_calls:
-                if tc.tool_call_id == tool_call_id:
-                    tc.input = input
-                    break
+        tc = self._find_tool_record(tool_call_id)
+        if tc is not None:
+            tc.input = input
+            if tc.state == "input-streaming":
+                tc.state = "input-available"
         self.write_event_to_stream(
             ToolInputAvailableEvent(
                 toolCallId=tool_call_id, toolName=tool_name, input=input
             )
         )
 
+    def _find_tool_record(self, tool_call_id: str) -> ToolCallRecord | None:
+        if self._record is None:
+            return None
+        for tc in self._record.tool_calls:
+            if tc.tool_call_id == tool_call_id:
+                return tc
+        return None
+
     async def complete_tool_call(self, tool_call_id: str, output: Any) -> None:
-        """Emit ``tool-output-available`` with the tool result."""
-        if self._record is not None:
-            for tc in self._record.tool_calls:
-                if tc.tool_call_id == tool_call_id:
-                    tc.output = output
-                    break
+        """
+        Emit the final ``tool-output-available`` with the tool result.
+
+        When collecting, any earlier preliminary snapshot is dropped from the
+        record: the final output supersedes it.
+        """
+        self._open_tool_calls.discard(tool_call_id)
+        tc = self._find_tool_record(tool_call_id)
+        if tc is not None:
+            tc.output = output
+            tc.state = "output-available"
+            tc.preliminary_output = None
         self.write_event_to_stream(
             ToolOutputAvailableEvent(toolCallId=tool_call_id, output=output)
         )
 
+    async def write_preliminary_tool_output(
+        self, tool_call_id: str, output: Any
+    ) -> None:
+        """
+        Emit an intermediate ``tool-output-available`` (``preliminary: true``).
+
+        Use this to stream progress of a long-running tool — e.g. a
+        sub-agent's transcript — into its tool part.  The AI SDK *replaces*
+        the part's ``output`` with each chunk, so every call must pass the
+        complete, accumulated snapshot rather than a delta.  The part stays
+        "running" until :meth:`complete_tool_call` (or :meth:`fail_tool_call`)
+        sends the final result.
+
+        The tool part must already exist (``begin_tool_call`` /
+        ``start_tool_input``) and must not be resolved yet: calling this
+        before the part is started or after ``complete_tool_call`` /
+        ``fail_tool_call`` raises ``RuntimeError`` (the AI SDK client would
+        otherwise throw, or overwrite the final result).  When collecting, the
+        snapshot is deep-copied into ``ToolCallRecord.preliminary_output``;
+        ``output`` and ``state`` are left untouched so a partial result is
+        never recorded as a success.
+
+        *output* is serialised when the stream is drained, not now — pass a
+        value you will not mutate afterwards.
+        """
+        self._write_preliminary_tool_output(tool_call_id, output)
+
+    def _write_preliminary_tool_output(
+        self, tool_call_id: str, output: Any, *, copy_output: bool = True
+    ) -> None:
+        # Sync core of write_preliminary_tool_output (usable from loop
+        # callbacks).  ``copy_output=False`` when *output* is already a
+        # private snapshot the caller will never mutate.
+        if tool_call_id not in self._open_tool_calls:
+            raise RuntimeError(
+                f"No open tool call {tool_call_id!r}: preliminary outputs must "
+                "come after begin_tool_call / start_tool_input and before "
+                "complete_tool_call / fail_tool_call"
+            )
+        tc = self._find_tool_record(tool_call_id)
+        if tc is not None:
+            if copy_output:
+                try:
+                    tc.preliminary_output = copy.deepcopy(output)
+                except Exception:  # not copyable — keep the reference
+                    tc.preliminary_output = output
+            else:
+                tc.preliminary_output = output
+        self.write_event_to_stream(
+            ToolOutputAvailableEvent(
+                toolCallId=tool_call_id, output=output, preliminary=True
+            )
+        )
+
     async def fail_tool_call(self, tool_call_id: str, error: str) -> None:
         """Emit ``tool-output-error`` when a tool call fails."""
-        if self._record is not None:
-            for tc in self._record.tool_calls:
-                if tc.tool_call_id == tool_call_id:
-                    tc.error = error
-                    break
+        self._fail_tool_call(tool_call_id, error)
+
+    def _fail_tool_call(self, tool_call_id: str, error: str) -> None:
+        # Sync core of fail_tool_call (usable from sync cleanup paths).
+        self._open_tool_calls.discard(tool_call_id)
+        tc = self._find_tool_record(tool_call_id)
+        if tc is not None:
+            tc.error = error
+            tc.state = "output-error"
         self.write_event_to_stream(
             ToolOutputErrorEvent(toolCallId=tool_call_id, errorText=error)
         )

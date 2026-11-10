@@ -828,6 +828,40 @@ class TestConvertToOpenAIMessages:
             "content": '{"temp": 72}',
         }
 
+    def test_subagent_transcript_envelope_sends_only_the_result(self):
+        """A NestedAgentTranscripts envelope is UI-only: the model gets result."""
+        envelope = {
+            "kind": "subagent",
+            "version": 1,
+            "agentName": "Researcher",
+            "message": {
+                "id": "child_tc1",
+                "role": "assistant",
+                "parts": [{"type": "reasoning", "text": "secret", "state": "done"}],
+            },
+            "result": "concise result",
+        }
+        msgs = [
+            _msg(
+                "assistant",
+                [
+                    {
+                        "type": "tool-research",
+                        "toolCallId": "tc1",
+                        "state": "output-available",
+                        "input": {},
+                        "output": envelope,
+                    }
+                ],
+            )
+        ]
+        result = convert_to_openai_messages(msgs)
+        assert result[1] == {
+            "role": "tool",
+            "tool_call_id": "tc1",
+            "content": '"concise result"',
+        }
+
     def test_assistant_tool_call_output_error(self):
         """output-error state → tool_calls + tool message with errorText."""
         msgs = [

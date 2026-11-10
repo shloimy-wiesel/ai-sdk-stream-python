@@ -103,6 +103,18 @@ class DataUIPart(BaseModel):
     transient: bool | None = None
 
 
+#: AI SDK v6 tool part lifecycle states (see :class:`ToolUIPart`).
+ToolUIPartState = Literal[
+    "input-streaming",
+    "input-available",
+    "approval-requested",
+    "approval-responded",
+    "output-available",
+    "output-error",
+    "output-denied",
+]
+
+
 class ToolUIPart(BaseModel):
     """Tool invocation part.
 
@@ -131,15 +143,7 @@ class ToolUIPart(BaseModel):
     toolName: str | None = None  # explicit name for "dynamic-tool" parts
     title: str | None = None
     providerExecuted: bool | None = None
-    state: Literal[
-        "input-streaming",
-        "input-available",
-        "approval-requested",
-        "approval-responded",
-        "output-available",
-        "output-error",
-        "output-denied",
-    ]
+    state: ToolUIPartState
     input: Any = None
     output: Any = None
     errorText: str | None = None
@@ -237,6 +241,7 @@ __all__ = [
     "StepStartUIPart",
     "DataUIPart",
     "ToolUIPart",
+    "ToolUIPartState",
     # Union
     "MessagePart",
     # Messages
