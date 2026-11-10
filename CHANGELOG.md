@@ -1,6 +1,61 @@
 # CHANGELOG
 
 
+## v0.5.0-b.5 (2026-11-10)
+
+### Features
+
+- Stream nested agent transcripts as preliminary tool results
+  ([#77](https://github.com/shloimy-wiesel/ai-sdk-stream-python/pull/77),
+  [`c2c7f7d`](https://github.com/shloimy-wiesel/ai-sdk-stream-python/commit/c2c7f7d0605d3306f5dc03382c5ebd8438d346c1))
+
+* feat: stream nested agent transcripts as preliminary tool results
+
+Add a generic preliminary-output primitive and an opt-in adapter that streams each agent-as-tool's
+  live transcript into its own tool card.
+
+- ToolOutputAvailableEvent gains optional `preliminary`. -
+  StreamContext.write_preliminary_tool_output() emits full snapshots; ToolCallRecord tracks `state`
+  and keeps snapshots in `preliminary_output` (deep-copied) so partial output is never recorded as a
+  success, and survives a later failure. - contrib.openai_agents.NestedAgentTranscripts:
+  request-scoped handler keyed by the originating tool call id; accumulates child text, reasoning,
+  nested tools and handoffs into a typed UI message; buffers until the parent tool part exists;
+  throttles snapshots with a trailing flush; finalizes once from the parent tool_output (adding the
+  unchanged model-facing `result`); surfaces callback failures from consume_agent_stream; ignores
+  late writes after close. - Legacy agent_tool_stream_handler is unchanged.
+
+Includes a real-Runner end-to-end test with a scripted model, a recorded SSE fixture, and a script
+  that replays it through AI SDK readUIMessageStream.
+
+Closes #76
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+* fix: address review findings on nested agent transcripts
+
+- Unwrap the subagent envelope to `result` for model input (`unwrap_subagent_output`, used by
+  `convert_to_openai_messages`) - Resolve parent cards on callback error, cancellation and run
+  errors; send the transcript of failed cards as a `data-subagent-transcript` part (the AI SDK drops
+  `output` on tool-output-error) with finalized states - Make `NestedAgentTranscripts` reusable
+  across sequential runs - Guard `write_preliminary_tool_output` against unopened/resolved calls -
+  Stop pending throttle timers from publishing after a callback error - Treat `__fake_id__` parent
+  calls as unroutable; fresh transcript on a reused call id - Only log errors from child runs whose
+  parent card never appeared; clear state on close - Separate streamed reasoning summary parts with
+  a blank line - Skip the second deep copy per publish; publish only on real changes - Clear
+  `preliminary_output` on success - Deduplicate hosted/tool-output resolution; reuse
+  `ToolUIPartState`; `cancel_timer` helper and a single open-calls set
+
+* test: add AI SDK client fixture for failed sub-agent transcripts
+
+Records a stream where one sub-agent fails and another is interrupted by a run error, and replays it
+  through readUIMessageStream to check both cards end as output-error while their transcripts
+  survive as data-subagent-transcript parts.
+
+---------
+
+Co-authored-by: Claude Opus 5.5 <noreply@anthropic.com>
+
+
 ## v0.5.0-b.4 (2026-11-05)
 
 ### Bug Fixes
