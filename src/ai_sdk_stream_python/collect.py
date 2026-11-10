@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 
-#: Lifecycle state of a collected tool call (mirrors AI SDK ``ToolUIPart``).
-ToolCallState = Literal[
-    "input-streaming", "input-available", "output-available", "output-error"
-]
+from .types import ToolUIPartState
+
+#: Lifecycle state of a collected tool call (the AI SDK ``ToolUIPart`` states).
+ToolCallState = ToolUIPartState
 
 
 @dataclass
@@ -27,9 +27,9 @@ class ToolCallRecord:
     (``complete_tool_call`` / ``fail_tool_call``).  Intermediate snapshots
     written with ``write_preliminary_tool_output`` go to
     ``preliminary_output`` instead, so a partial result is never mistaken for
-    a successful one.  ``preliminary_output`` keeps the last snapshot after the
-    call completes or fails (e.g. the partial transcript of a failed
-    sub-agent).
+    a successful one.  ``complete_tool_call`` clears ``preliminary_output``
+    (the final output supersedes it); after ``fail_tool_call`` it keeps the
+    last snapshot (e.g. the partial transcript of a failed sub-agent).
     """
 
     tool_call_id: str

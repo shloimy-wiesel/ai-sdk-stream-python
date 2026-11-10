@@ -57,6 +57,7 @@ from ai_sdk_stream_python.contrib.openai_agents import (
     NestedAgentTranscripts,
     agent_tool_stream_handler,
     consume_agent_stream,
+    unwrap_subagent_output,
 )
 
 MAIN = Agent(name="Main")
@@ -962,12 +963,20 @@ async def test_cancellation_stops_late_writes_and_timers():
         await task
     assert run.cancelled
     # The throttled trailing snapshot was cancelled; late callbacks are ignored.
-    assert all(r.timer is None for r in transcripts._runs.values())
+    assert transcripts._runs == {}
     await child(text("late"))()
     await ctx.finish()
     events = await collect(ctx)
     outs = tool_outputs(events, "call_a")
-    assert [child_texts(o["output"]) for o in outs] == [["a"]]
+    # The card is resolved instead of staying "running" forever.
+    assert [o["type"] for o in outs] == ["tool-output-available", "tool-output-error"]
+    assert child_texts(outs[0]["output"]) == ["a"]
+    data = [e for e in events if e["type"] == "data-subagent-transcript"]
+    assert len(data) == 1
+    assert data[0]["id"] == "subagent_call_a"
+    assert data[0]["data"]["toolCallId"] == "call_a"
+    assert child_texts(data[0]["data"]) == ["ab"]
+    assert {p["state"] for p in data[0]["data"]["message"]["parts"][1:]} == {"done"}
 
 
 async def test_throttle_coalesces_deltas_and_flushes_trailing_edge():
@@ -1028,11 +1037,15 @@ async def test_adapter_failure_surfaces_as_request_error():
             tool_output("call_a", "ok"),
         ]
 
-    events, _, _ = await run_nested(script, detect_tool_error=boom)
+    events, ctx, _ = await run_nested(script, detect_tool_error=boom)
     assert events[-1] == {"type": "error", "errorText": "detector exploded"}
-    assert not [
-        e for e in tool_outputs(events, "call_a") if e.get("preliminary") is None
+    # Never a successful final result — the card is failed, not left running.
+    outs = tool_outputs(events, "call_a")
+    assert [o["type"] for o in outs if o.get("preliminary") is None] == [
+        "tool-output-error"
     ]
+    assert ctx.record is not None
+    assert ctx.record.tool_calls[0].state == "output-error"
 
 
 async def test_handoff_inside_child_is_recorded_as_data_part():
@@ -1067,6 +1080,325 @@ async def test_tools_without_transcript_are_unchanged():
     assert [
         (e["output"], e.get("preliminary")) for e in tool_outputs(events, "call_w")
     ] == [("sunny", None)]
+
+
+async def test_final_envelope_unwraps_to_the_model_result():
+    parent = fn_call("call_a", "research")
+
+    def script(t: NestedAgentTranscripts) -> list[Any]:
+        child = nested_via(t, RESEARCHER, parent)
+        return [
+            tool_called("call_a", "research", {}),
+            child(reasoning("private thoughts")),
+            tool_output("call_a", "concise result"),
+        ]
+
+    events, ctx, _ = await run_nested(script)
+    final = tool_outputs(events, "call_a")[-1]["output"]
+    assert unwrap_subagent_output(final) == "concise result"
+    assert unwrap_subagent_output({"other": 1}) == {"other": 1}
+    assert ctx.record is not None
+    # Superseded by the final output — not stored twice.
+    assert ctx.record.tool_calls[0].preliminary_output is None
+
+
+async def test_run_error_resolves_running_sibling_cards():
+    """A failing run (e.g. a sibling raised) must not leave cards running."""
+    pa = fn_call("call_a", "research")
+    pb = fn_call("call_b", "research")
+    ctx = StreamContext(collect=True)
+    transcripts = NestedAgentTranscripts(ctx, throttle=0)
+    a = nested_via(transcripts, RESEARCHER, pa)
+    b = nested_via(transcripts, RESEARCHER, pb)
+    run = FakeRun(
+        [
+            tool_called("call_a", "research", {}),
+            tool_called("call_b", "research", {}),
+            a(text("A partial")),
+            b(text("B partial")),
+        ],
+        raise_exc=RuntimeError("model failed"),
+    )
+
+    async def work(ctx: StreamContext) -> None:
+        await consume_agent_stream(run, ctx, nested=transcripts)  # type: ignore[arg-type]
+
+    await ctx.run(work)
+    events = await collect(ctx)
+    for cid, txt in (("call_a", "A partial"), ("call_b", "B partial")):
+        outs = tool_outputs(events, cid)
+        assert outs[-1]["type"] == "tool-output-error"
+        data = [
+            e
+            for e in events
+            if e["type"] == "data-subagent-transcript"
+            and e["data"]["toolCallId"] == cid
+        ]
+        assert child_texts(data[0]["data"]) == [txt]
+    ts = types(events)
+    assert ts.index("tool-output-error") < ts.index("error")
+    assert ctx.record is not None
+    assert {tc.state for tc in ctx.record.tool_calls} == {"output-error"}
+
+
+async def test_failed_subagent_sends_transcript_as_data_part_without_wasted_flush():
+    ctx = StreamContext(collect=True)
+    transcripts = NestedAgentTranscripts(ctx, throttle=10)
+    parent = fn_call("call_a", "research")
+    child = nested_via(transcripts, RESEARCHER, parent)
+    run = FakeRun(
+        [
+            tool_called("call_a", "research", {}),
+            child(text("a")),
+            child(text("b")),  # throttled: still dirty at failure
+            tool_output("call_a", SDK_DEFAULT_TOOL_ERROR),
+        ]
+    )
+
+    async def work(ctx: StreamContext) -> None:
+        await consume_agent_stream(run, ctx, nested=transcripts)  # type: ignore[arg-type]
+
+    await ctx.run(work)
+    events = await collect(ctx)
+    outs = tool_outputs(events, "call_a")
+    # No preliminary right before the error: the client would discard it.
+    assert [(o["type"], o.get("preliminary")) for o in outs] == [
+        ("tool-output-available", True),
+        ("tool-output-error", None),
+    ]
+    data = [e for e in events if e["type"] == "data-subagent-transcript"]
+    assert child_texts(data[0]["data"]) == ["ab"]
+    assert ctx.record is not None
+    tc = ctx.record.tool_calls[0]
+    # Finalized states in the record, even though nothing was re-published.
+    assert child_texts(tc.preliminary_output) == ["ab"]
+    assert tc.preliminary_output["message"]["parts"][1]["state"] == "done"
+
+
+async def test_transcripts_reusable_across_sequential_runs():
+    ctx = StreamContext(collect=True)
+    transcripts = NestedAgentTranscripts(ctx, throttle=0)
+
+    def script(call_id: str, txt: str) -> FakeRun:
+        child = nested_via(transcripts, RESEARCHER, fn_call(call_id, "research"))
+        return FakeRun(
+            [
+                tool_called(call_id, "research", {}),
+                child(text(txt)),
+                tool_output(call_id, "ok"),
+            ]
+        )
+
+    async def work(ctx: StreamContext) -> None:
+        await consume_agent_stream(script("call_1", "one"), ctx, nested=transcripts)  # type: ignore[arg-type]
+        await consume_agent_stream(script("call_2", "two"), ctx, nested=transcripts)  # type: ignore[arg-type]
+
+    await ctx.run(work)
+    events = await collect(ctx)
+    final = tool_outputs(events, "call_2")[-1]["output"]
+    assert final["kind"] == "subagent"
+    assert child_texts(final) == ["two"]
+
+
+async def test_throttle_timer_does_not_publish_after_callback_error():
+    def boom(item: Any) -> str | None:
+        raise ValueError("detector exploded")
+
+    ctx = StreamContext()
+    transcripts = NestedAgentTranscripts(ctx, throttle=0.05, detect_tool_error=boom)
+    parent = fn_call("call_a", "research")
+    child = nested_via(transcripts, RESEARCHER, parent)
+
+    async def pause() -> None:
+        await asyncio.sleep(0.1)
+
+    run = FakeRun(
+        [
+            tool_called("call_a", "research", {}),
+            child(tool_called("in_1", "search", {}, RESEARCHER)),  # published
+            child(text("a")),  # throttled: schedules the trailing-edge timer
+            child(text("bc")),
+            child(tool_output("in_1", "hits", RESEARCHER)),  # raises
+            pause,
+            tool_output("call_a", "ok"),
+        ]
+    )
+
+    async def work(ctx: StreamContext) -> None:
+        await consume_agent_stream(run, ctx, nested=transcripts)  # type: ignore[arg-type]
+
+    await ctx.run(work)
+    events = await collect(ctx)
+    prelim = [o for o in tool_outputs(events, "call_a") if o.get("preliminary")]
+    # The pending timer must not publish the half-applied snapshot.
+    assert [child_texts(o["output"]) for o in prelim] == [[]]
+
+
+async def test_fake_parent_call_id_is_not_routed():
+    """Id-less calls all share ``__fake_id__`` and would merge transcripts."""
+    fake = "__fake_id__"
+
+    def script(t: NestedAgentTranscripts) -> list[Any]:
+        a = nested_via(t, RESEARCHER, fn_call(fake, "research"))
+        return [
+            tool_called(fake, "research", {}),
+            a(text("A")),
+            a(text("B")),
+            tool_output(fake, "plain"),
+        ]
+
+    events, _, _ = await run_nested(script)
+    assert [
+        (o["output"], o.get("preliminary")) for o in tool_outputs(events, fake)
+    ] == [("plain", None)]
+
+
+async def test_reused_call_id_gets_a_fresh_transcript():
+    parent = fn_call("call_a", "research")
+
+    def script(t: NestedAgentTranscripts) -> list[Any]:
+        child = nested_via(t, RESEARCHER, parent)
+        return [
+            tool_called("call_a", "research", {}),
+            child(text("first")),
+            tool_output("call_a", "1"),
+            tool_called("call_a", "research", {}),
+            child(text("second")),
+            tool_output("call_a", "2"),
+        ]
+
+    events, _, _ = await run_nested(script)
+    finals = [o for o in tool_outputs(events, "call_a") if o.get("preliminary") is None]
+    assert [(child_texts(o["output"]), o["output"]["result"]) for o in finals] == [
+        (["first"], "1"),
+        (["second"], "2"),
+    ]
+
+
+async def test_error_in_unmatched_child_run_does_not_fail_request(caplog):
+    """Errors from runs whose parent card never appeared are only logged."""
+
+    def boom(item: Any) -> str | None:
+        raise ValueError("detector exploded")
+
+    stray = fn_call("call_grandchild", "search")
+
+    def script(t: NestedAgentTranscripts) -> list[Any]:
+        child = nested_via(t, RESEARCHER, stray)
+        return [
+            child(tool_called("in_1", "search", {}, RESEARCHER)),
+            child(tool_output("in_1", "hits", RESEARCHER)),
+            text("final"),
+        ]
+
+    ctx = StreamContext()
+    transcripts = NestedAgentTranscripts(ctx, throttle=0, detect_tool_error=boom)
+    run = FakeRun(script(transcripts))
+
+    async def work(ctx: StreamContext) -> None:
+        await consume_agent_stream(run, ctx, nested=transcripts)  # type: ignore[arg-type]
+
+    await ctx.run(work)
+    events = await collect(ctx)
+    assert "error" not in types(events)
+    assert transcripts._runs == {}
+    assert "Discarding nested transcript error" in caplog.text
+
+
+def reasoning_part(delta: str, summary_index: int, item_id: str = "rs_1") -> Any:
+    return RawResponsesStreamEvent(
+        data=ResponseReasoningSummaryTextDeltaEvent(
+            delta=delta,
+            item_id=item_id,
+            output_index=0,
+            sequence_number=0,
+            summary_index=summary_index,
+            type="response.reasoning_summary_text.delta",
+        )
+    )
+
+
+async def test_streamed_reasoning_summary_parts_are_separated():
+    parent = fn_call("call_a", "research")
+
+    def script(t: NestedAgentTranscripts) -> list[Any]:
+        child = nested_via(t, RESEARCHER, parent)
+        return [
+            tool_called("call_a", "research", {}),
+            child(reasoning_part("**Plan** ", 0)),
+            child(reasoning_part("search", 0)),
+            child(reasoning_part("**Next** verify", 1)),
+            tool_output("call_a", "ok"),
+        ]
+
+    events, _, _ = await run_nested(script)
+    parts = tool_outputs(events, "call_a")[-1]["output"]["message"]["parts"]
+    assert [p["text"] for p in parts if p["type"] == "reasoning"] == [
+        "**Plan** search\n\n**Next** verify"
+    ]
+
+
+async def test_parent_streamed_reasoning_summary_parts_are_separated():
+    events, _ = await run_agent(
+        FakeRun(
+            [
+                reasoning_part("**Plan** ", 0),
+                reasoning_part("search", 0),
+                reasoning_part("**Next** verify", 1),
+            ]
+        )
+    )
+    deltas = "".join(e["delta"] for e in events if e["type"] == "reasoning-delta")
+    assert deltas == "**Plan** search\n\n**Next** verify"
+
+
+async def test_events_that_change_nothing_publish_nothing():
+    parent = fn_call("call_a", "research")
+
+    def script(t: NestedAgentTranscripts) -> list[Any]:
+        child = nested_via(t, RESEARCHER, parent)
+        return [
+            tool_called("call_a", "research", {}),
+            child(text("x")),
+            child(reasoning("hidden")),  # include_reasoning=False
+            child(reasoning_done("rs_1", "hidden")),
+            child(reasoning_item("rs_1", "hidden", RESEARCHER)),
+            child(tool_output("unknown", "?", RESEARCHER)),
+            child(message("", RESEARCHER)),
+            tool_output("call_a", "ok"),
+        ]
+
+    events, _, _ = await run_nested(script, include_reasoning=False)
+    prelim = [o for o in tool_outputs(events, "call_a") if o.get("preliminary")]
+    assert [child_texts(o["output"]) for o in prelim] == [["x"]]
+
+
+async def test_context_does_not_copy_the_adapter_snapshot_again(monkeypatch):
+    """``_snapshot`` already returns a private copy; ctx must not deep-copy it."""
+    import ai_sdk_stream_python.context as context_mod
+
+    calls = 0
+
+    def counting(value: Any, *args: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        return value
+
+    monkeypatch.setattr(context_mod, "copy", SimpleNamespace(deepcopy=counting))
+    parent = fn_call("call_a", "research")
+
+    def script(t: NestedAgentTranscripts) -> list[Any]:
+        child = nested_via(t, RESEARCHER, parent)
+        return [
+            tool_called("call_a", "research", {}),
+            child(text("x")),
+            child(text("y")),
+            tool_output("call_a", "ok"),
+        ]
+
+    events, _, _ = await run_nested(script)
+    assert len([o for o in tool_outputs(events, "call_a") if o.get("preliminary")]) == 2
+    assert calls == 0
 
 
 # ---------------------------------------------------------------------------

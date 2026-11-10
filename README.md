@@ -235,8 +235,11 @@ await db.insert(record.to_dict())
 
 Preliminary tool outputs never count as results: they are stored in
 `ToolCallRecord.preliminary_output`, while `output` and `state` change only on
-`complete_tool_call` / `fail_tool_call` (`tc.is_complete` tells them apart). The
-last preliminary snapshot is kept when the tool fails.
+`complete_tool_call` / `fail_tool_call` (`tc.is_complete` tells them apart).
+`complete_tool_call` clears `preliminary_output`, since the final output replaces
+it. When the tool fails, the last snapshot is kept. Calling
+`write_preliminary_tool_output` before the part starts or after it is resolved
+raises `RuntimeError`.
 
 `ctx.record` is `None` when `collect=False` (the default). The record is built incrementally as events are emitted, and is fully available after `finish()` completes.
 
@@ -435,8 +438,22 @@ chunks with `preliminary: true`. Each one is a full snapshot:
 ```
 
 When the tool returns, the final (non-preliminary) output has the same
-envelope plus `"result"`. This is the value the parent model received, and the
-adapter does not change it. A failed tool gets `tool-output-error`.
+envelope plus `"result"`, the value the parent model received.
+
+> **Send `result`, not the envelope, back to the model.** The final envelope is
+> what message history stores as the tool output. `convert_to_openai_messages`
+> unwraps it for you. If you convert history any other way, call
+> `unwrap_subagent_output(part.output)` first (or, with the AI SDK's
+> `convertToModelMessages`, replace `output` with `output.result` when
+> `output.kind === "subagent"`). Otherwise the model receives the sub-agent's
+> whole transcript, including its reasoning and nested tool outputs, on the next
+> turn.
+
+If the tool fails, or the run ends before it returns (cancellation, a sibling's
+error), the card gets a `tool-output-error`. The AI SDK drops a part's `output`
+on error, so the transcript so far is also sent as a `data-subagent-transcript`
+part: `id` is `"subagent_<call_id>"`, and `data` is the envelope plus
+`"toolCallId"`. It is also kept in `ToolCallRecord.preliminary_output`.
 
 - Calls are keyed by the originating `tool_call.call_id`, so parallel calls of
   the same agent stay separate, even when their child item ids collide.
@@ -445,11 +462,17 @@ adapter does not change it. A failed tool gets `tool-output-error`.
 - Snapshots are held until the parent tool part exists. While tokens stream,
   the adapter sends at most one snapshot per `throttle` seconds per call, plus a
   trailing flush. It flushes again on every completed child item.
-- Exceptions inside the callback, which the SDK would otherwise swallow, are
-  re-raised from `consume_agent_stream`. `ctx.run()` then reports them as an
-  `error` event. After cancellation, late callbacks are ignored.
-- Nested events that have no originating tool call are dropped (with a logged
-  warning).
+- Exceptions inside the callback, which the SDK would otherwise swallow, fail
+  that card and are re-raised from `consume_agent_stream`. `ctx.run()` then
+  reports them as an `error` event. Errors from child runs whose parent card
+  never appeared (e.g. a deeper agent wired to the same callback) are only
+  logged.
+- When `consume_agent_stream` ends, cards still running are failed and late
+  callbacks are ignored. The same `NestedAgentTranscripts` can be passed to a
+  later `consume_agent_stream`, e.g. a resume after an approval interruption.
+- Nested events that cannot be attributed to one call are dropped with a logged
+  warning. This covers events with no originating tool call, and calls whose id
+  is the SDK's shared `__fake_id__` placeholder.
 
 Rendering it with `useChat` (AI SDK v6):
 

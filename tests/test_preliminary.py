@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from ai_sdk_stream_python import StreamContext
 from ai_sdk_stream_python.events import ToolOutputAvailableEvent
 
@@ -47,7 +49,9 @@ async def test_preliminary_then_final_snapshots():
     tc = ctx.record.tool_calls[0]
     assert tc.state == "output-available"
     assert tc.output == {"n": 3}
-    assert tc.preliminary_output == {"n": 2}
+    # The final output supersedes the last snapshot (no 2x storage).
+    assert tc.preliminary_output is None
+    assert ctx.record.to_dict()["tool_calls"][0]["preliminary_output"] is None
 
 
 async def test_partial_output_is_not_recorded_as_success():
@@ -100,3 +104,34 @@ async def test_streaming_input_states():
     assert ctx.record.tool_calls[0].state == "input-streaming"
     await ctx.finish_tool_input(h.toolCallId, "t", {"a": 1})
     assert ctx.record.tool_calls[0].state == "input-available"
+
+
+async def test_preliminary_before_tool_part_starts_raises():
+    ctx = StreamContext()
+    with pytest.raises(RuntimeError, match="No open tool call"):
+        await ctx.write_preliminary_tool_output("missing", {"n": 1})
+
+
+@pytest.mark.parametrize("resolve", ["complete", "fail"])
+async def test_preliminary_after_final_result_raises(resolve: str):
+    ctx = StreamContext(collect=True)
+    h = await ctx.begin_tool_call("count", {})
+    if resolve == "complete":
+        await ctx.complete_tool_call(h.toolCallId, {"n": 3})
+    else:
+        await ctx.fail_tool_call(h.toolCallId, "boom")
+    with pytest.raises(RuntimeError, match="No open tool call"):
+        await ctx.write_preliminary_tool_output(h.toolCallId, {"n": 4})
+    await ctx.finish()
+    events = await collect(ctx)
+    assert not [e for e in events if e.get("preliminary")]
+    assert ctx.record is not None
+    assert ctx.record.tool_calls[0].preliminary_output is None
+
+
+async def test_preliminary_allowed_on_streaming_input_part():
+    ctx = StreamContext()
+    h = await ctx.start_tool_input("t")
+    await ctx.write_preliminary_tool_output(h.toolCallId, {"n": 1})
+    await ctx.finish()
+    assert outputs(await collect(ctx)) == [({"n": 1}, True)]
