@@ -499,7 +499,9 @@ function SubagentCard({ part }: { part: ToolUIPart | DynamicToolUIPart }) {
 
 `tests/fixtures/nested_agent_transcript.sse` is a recorded stream of two
 parallel sub-agents. `tests/fixtures/verify_nested_fixture.mjs` replays it
-through the AI SDK's `readUIMessageStream`.
+through the AI SDK's `readUIMessageStream`. `nested_agent_failure.sse` and
+`verify_nested_failure_fixture.mjs` do the same for the failure path: one
+sub-agent fails and the other is interrupted by a run error.
 
 ---
 

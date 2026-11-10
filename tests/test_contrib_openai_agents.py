@@ -1551,3 +1551,38 @@ async def test_real_runner_parallel_subagents_end_to_end():
     if os.environ.get("UPDATE_FIXTURES"):
         FIXTURE.write_text(normalized)
     assert normalized == FIXTURE.read_text()
+
+
+FAILURE_FIXTURE = Path(__file__).parent / "fixtures" / "nested_agent_failure.sse"
+
+
+async def test_failed_and_interrupted_subagents_fixture():
+    """Protocol fixture for the failure path (replay: verify_nested_failure_fixture.mjs).
+
+    ``call_b`` fails outright; the run then raises while ``call_a`` is still
+    running.  Both cards must be resolved and keep their transcripts.
+    """
+    ctx = StreamContext(message_id="msg_fixture")
+    t = NestedAgentTranscripts(ctx, throttle=0)
+    a = nested_via(t, RESEARCHER, fn_call("call_a", "research"))
+    b = nested_via(t, RESEARCHER, fn_call("call_b", "research"))
+    run = FakeRun(
+        [
+            tool_called("call_a", "research", {}),
+            tool_called("call_b", "research", {}),
+            a(text("A partial")),
+            b(text("B partial")),
+            tool_output("call_b", SDK_DEFAULT_TOOL_ERROR),
+        ],
+        raise_exc=RuntimeError("model failed"),
+    )
+
+    async def work(ctx: StreamContext) -> None:
+        await consume_agent_stream(run, ctx, nested=t)  # type: ignore[arg-type]
+
+    await ctx.run(work)
+    lines = [raw async for raw in ctx.stream()]
+    normalized = "\n\n".join(_normalize(lines)) + "\n\n"
+    if os.environ.get("UPDATE_FIXTURES"):
+        FAILURE_FIXTURE.write_text(normalized)
+    assert normalized == FAILURE_FIXTURE.read_text()

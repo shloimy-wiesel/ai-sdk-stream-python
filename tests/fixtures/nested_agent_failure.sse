@@ -1,0 +1,28 @@
+data: {"type":"start","messageId":"msg_fixture"}
+
+data: {"type":"start-step"}
+
+data: {"type":"tool-input-start","toolCallId":"call_a","toolName":"research"}
+
+data: {"type":"tool-input-available","toolCallId":"call_a","toolName":"research","input":{}}
+
+data: {"type":"tool-input-start","toolCallId":"call_b","toolName":"research"}
+
+data: {"type":"tool-input-available","toolCallId":"call_b","toolName":"research","input":{}}
+
+data: {"type":"tool-output-available","toolCallId":"call_a","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_a","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"A partial","state":"streaming"}]}},"preliminary":true}
+
+data: {"type":"tool-output-available","toolCallId":"call_b","output":{"kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_b","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"B partial","state":"streaming"}]}},"preliminary":true}
+
+data: {"type":"data-subagent-transcript","data":{"toolCallId":"call_b","kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_b","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"B partial","state":"done"}]}},"id":"subagent_call_b"}
+
+data: {"type":"tool-output-error","toolCallId":"call_b","errorText":"An error occurred while running the tool. Please try again."}
+
+data: {"type":"data-subagent-transcript","data":{"toolCallId":"call_a","kind":"subagent","version":1,"agentName":"Researcher","message":{"id":"child_call_a","role":"assistant","parts":[{"type":"step-start"},{"type":"text","text":"A partial","state":"done"}]}},"id":"subagent_call_a"}
+
+data: {"type":"tool-output-error","toolCallId":"call_a","errorText":"Sub-agent run did not complete"}
+
+data: {"type":"error","errorText":"model failed"}
+
+data: [DONE]
+
